@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "0 0 * * *"
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Skip recency check and update all tickers'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -53,10 +58,12 @@ jobs:
           first=true
           for dir in "${dirs[@]}"; do
             ticker=$(basename "$dir" | tr '[:lower:]' '[:upper:]')
-            recent=$(git log --since="6 hours ago" --name-only --format="" -- "${dir}/")
-            if echo "$recent" | grep -q "ohlcv.csv"; then
-              echo "Skipping $ticker — committed within last 6 hours"
-              continue
+            if [ "${{ inputs.force }}" != "true" ]; then
+              recent=$(git log --since="6 hours ago" --name-only --format="" -- "${dir}/")
+              if echo "$recent" | grep -q "ohlcv.csv"; then
+                echo "Skipping $ticker — committed within last 6 hours"
+                continue
+              fi
             fi
             [ "$first" = true ] || sleep 10
             first=false
