@@ -5,10 +5,10 @@ on:
     - cron: "0 0 * * 6"
   workflow_dispatch:
     inputs:
-      force:
-        description: 'Skip recency check and update all tickers'
-        type: boolean
-        default: false
+      recency_mins:
+        description: 'Skip tickers committed within this many minutes (0 = update all)'
+        type: number
+        default: 360
 
 permissions:
   contents: write
@@ -79,10 +79,11 @@ jobs:
             ts="${pair%%|*}"
             ticker="${pair##*|}"
             last_label=$([ "$ts" -gt 0 ] && date -u -d "@$ts" +%Y-%m-%d || echo never)
-            if [ "${{ inputs.force }}" != "true" ]; then
-              recent=$(git log --since="6 hours ago" --name-only --format="" -- "${ROOT}/${ticker}/")
+            recency_mins="${{ inputs.recency_mins || 360 }}"
+            if [ "$recency_mins" -gt 0 ]; then
+              recent=$(git log --since="${recency_mins} minutes ago" --name-only --format="" -- "${ROOT}/${ticker}/")
               if echo "$recent" | grep -q "eps.csv"; then
-                echo "--- ${ticker} (last: ${last_label}) --- skipped (committed within last 6 hours)"
+                echo "--- ${ticker} (last: ${last_label}) --- skipped (committed within last ${recency_mins} minutes)"
                 continue
               fi
             fi
