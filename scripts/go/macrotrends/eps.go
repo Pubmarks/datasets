@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/csv"
 	"fmt"
@@ -117,6 +116,11 @@ func parseNumericEPS(raw string, stripCurrency bool) (float64, bool) {
 	if text == "" {
 		return 0, false
 	}
+	// accounting notation: ($1.23) or (1.23) → -1.23
+	negative := strings.HasPrefix(text, "(") && strings.HasSuffix(text, ")")
+	if negative {
+		text = text[1 : len(text)-1]
+	}
 	if stripCurrency {
 		text = strings.ReplaceAll(text, "$", "")
 		text = strings.ReplaceAll(text, ",", "")
@@ -126,6 +130,9 @@ func parseNumericEPS(raw string, stripCurrency bool) (float64, bool) {
 	v, err := strconv.ParseFloat(text, 64)
 	if err != nil {
 		return 0, false
+	}
+	if negative {
+		v = -v
 	}
 	return v, true
 }
@@ -176,28 +183,6 @@ func fmtEPSFloatPtr(p *float64) string {
 	return strconv.FormatFloat(*p, 'f', -1, 64)
 }
 
-func lastEPSCSVDate(path string) (time.Time, bool) {
-	f, err := os.Open(path)
-	if err != nil {
-		return time.Time{}, false
-	}
-	defer f.Close()
-	var last string
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		if line := strings.TrimSpace(sc.Text()); line != "" {
-			last = line
-		}
-	}
-	if last == "" || strings.HasPrefix(last, "date") {
-		return time.Time{}, false
-	}
-	d, err := time.Parse("2006-01-02", strings.SplitN(last, ",", 2)[0])
-	if err != nil {
-		return time.Time{}, false
-	}
-	return d, true
-}
 
 func writeEPSCSVAtomic(rows []epsRow, path string) error {
 	tmp := path + ".tmp"
@@ -217,30 +202,14 @@ func writeEPSCSVAtomic(rows []epsRow, path string) error {
 	return os.Rename(tmp, path)
 }
 
-func appendEPSCSVRows(rows []epsRow, path string) error {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	cw := csv.NewWriter(f)
-	for _, r := range rows {
-		if err := cw.Write([]string{
-			r.date,
-			fmtEPSFloatPtr(r.stockPrice),
-			fmtEPSFloatPtr(r.ttmNetEPS),
-			fmtEPSFloatPtr(r.peRatio),
-		}); err != nil {
-			return err
-		}
-	}
-	cw.Flush()
-	return cw.Error()
-}
-
+// readEPSCSVRows reads an existing eps.csv and returns its rows oldest-first.
+// Returns nil (no error) if the file does not exist.
 func readEPSCSVRows(path string) ([]epsRow, error) {
 	f, err := os.Open(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	defer f.Close()
@@ -275,6 +244,31 @@ func readEPSCSVRows(path string) ([]epsRow, error) {
 	return rows, nil
 }
 
+// mergeEPSWithExisting prepends any rows from existingPath that predate the
+// oldest row in fetched. fetched must already be sorted oldest-first.
+// Rows MacroTrends no longer serves (older than its current earliest date) are
+// preserved so historical data is never silently lost.
+func mergeEPSWithExisting(fetched []epsRow, existingPath string) ([]epsRow, error) {
+	if len(fetched) == 0 {
+		return fetched, nil
+	}
+	existing, err := readEPSCSVRows(existingPath)
+	if err != nil {
+		return nil, err
+	}
+	fetchedOldest := fetched[0].date
+	var preserved []epsRow
+	for _, r := range existing {
+		if r.date < fetchedOldest {
+			preserved = append(preserved, r)
+		}
+	}
+	if len(preserved) == 0 {
+		return fetched, nil
+	}
+	return append(preserved, fetched...), nil
+}
+
 func syncEPSYearFiles(root, ticker string, allRows []epsRow, w io.Writer) error {
 	byYear := map[int][]epsRow{}
 	for _, r := range allRows {
@@ -288,37 +282,15 @@ func syncEPSYearFiles(root, ticker string, allRows []epsRow, w io.Writer) error 
 	sort.Ints(years)
 
 	for _, year := range years {
-		yearRows := byYear[year]
 		yearPath := filepath.Join(root, "data", "stocks", ticker, strconv.Itoa(year), "eps.csv")
-		yearLastD, hasYearLast := lastEPSCSVDate(yearPath)
-		flatYearLastD, _ := time.Parse("2006-01-02", yearRows[len(yearRows)-1].date)
-
-		if hasYearLast && yearLastD.Equal(flatYearLastD) {
-			continue
-		}
 		if err := os.MkdirAll(filepath.Dir(yearPath), 0755); err != nil {
 			return err
 		}
-		if !hasYearLast {
-			if err := writeEPSCSVAtomic(yearRows, yearPath); err != nil {
-				return err
-			}
-			fmt.Fprintf(w, "wrote %d row(s) to %s\n", len(yearRows), yearPath)
-		} else {
-			var missing []epsRow
-			for _, r := range yearRows {
-				d, _ := time.Parse("2006-01-02", r.date)
-				if d.After(yearLastD) {
-					missing = append(missing, r)
-				}
-			}
-			if len(missing) > 0 {
-				if err := appendEPSCSVRows(missing, yearPath); err != nil {
-					return err
-				}
-				fmt.Fprintf(w, "appended %d row(s) to %s\n", len(missing), yearPath)
-			}
+		yearRows := byYear[year]
+		if err := writeEPSCSVAtomic(yearRows, yearPath); err != nil {
+			return err
 		}
+		fmt.Fprintf(w, "wrote %d row(s) to %s\n", len(yearRows), yearPath)
 	}
 	return nil
 }
