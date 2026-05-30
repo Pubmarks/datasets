@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "0 0 * * 6"
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Skip recency check and update all tickers'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -69,22 +74,17 @@ jobs:
           done
           IFS=$'\n' sorted=($(printf '%s\n' "${pairs[@]}" | sort -t'|' -k1 -n)); unset IFS
 
-          now=$(date +%s)
-          cutoff=$(( now - 6 * 86400 ))
-
           prev_ran=false
           for pair in "${sorted[@]}"; do
             ts="${pair%%|*}"
             ticker="${pair##*|}"
             last_label=$([ "$ts" -gt 0 ] && date -u -d "@$ts" +%Y-%m-%d || echo never)
-            if [ "$ts" -gt "$cutoff" ]; then
-              echo "--- ${ticker} (last: ${last_label}) --- skipped (updated within 7 days)"
-              continue
-            fi
-            recent=$(git log --since="6 hours ago" --name-only --format="" -- "${ROOT}/${ticker}/")
-            if echo "$recent" | grep -q "eps.csv"; then
-              echo "--- ${ticker} (last: ${last_label}) --- skipped (committed within last 6 hours)"
-              continue
+            if [ "${{ inputs.force }}" != "true" ]; then
+              recent=$(git log --since="6 hours ago" --name-only --format="" -- "${ROOT}/${ticker}/")
+              if echo "$recent" | grep -q "eps.csv"; then
+                echo "--- ${ticker} (last: ${last_label}) --- skipped (committed within last 6 hours)"
+                continue
+              fi
             fi
             if [ "$prev_ran" = true ]; then sleep 10; fi
             prev_ran=true
