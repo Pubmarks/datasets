@@ -5,7 +5,6 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,16 +27,17 @@ type epsRow struct {
 	peRatio    *float64
 }
 
-func fetchEPSHistory(ctx context.Context, client *http.Client, symbol string) ([]epsRow, error) {
-	pageURL, err := resolveEPSPageURL(ctx, client, symbol)
+func fetchEPSHistory(ctx context.Context, symbol string) ([]epsRow, error) {
+	symbol = normalizeSymbol(symbol)
+	pageURL := epsPageURL(symbol)
+	body, finalURL, err := zenrowsGet(ctx, pageURL)
 	if err != nil {
 		return nil, err
 	}
-	html, err := fetchHTML(ctx, client, pageURL)
-	if err != nil {
+	if err := validateChartCanonicalURL(finalURL, symbol); err != nil {
 		return nil, err
 	}
-	rows := parseEPSHistoryFromHTML(html)
+	rows := parseEPSHistoryFromHTML(string(body))
 	if len(rows) == 0 {
 		return nil, fmt.Errorf("no EPS history table found (expected thead %v)", epsHistoryTableHeaders)
 	}
@@ -182,7 +182,6 @@ func fmtEPSFloatPtr(p *float64) string {
 	}
 	return strconv.FormatFloat(*p, 'f', -1, 64)
 }
-
 
 func writeEPSCSVAtomic(rows []epsRow, path string) error {
 	tmp := path + ".tmp"

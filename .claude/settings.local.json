@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go build *)",
+      "Bash(go run *)",
+      "Bash(uv run *)",
+      "Bash(rustc --version)",
+      "Bash(cargo --version)",
+      "Bash(cargo run *)",
+      "Bash(cargo test *)",
+      "Bash(cargo build *)",
+      "WebSearch",
+      "Bash(xargs -I {} dirname {})"
+    ]
+  }
+}

@@ -43,6 +43,7 @@ jobs:
       - name: Fetch history
         env:
           TICKER_INPUT: ${{ github.event.inputs.ticker }}
+          ZENROWS_API_KEY: ${{ secrets.ZENROWS_API_KEY }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
