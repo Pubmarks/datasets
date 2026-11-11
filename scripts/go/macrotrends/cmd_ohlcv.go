@@ -30,14 +30,13 @@ If year is omitted, all rows from the download are printed.`,
 			}
 
 			ctx := context.Background()
-			client := newHTTPClient(httpTimeout)
 			var yb *int
 			if yearSet {
 				v := yearsBackForYear(year)
 				yb = &v
 			}
 
-			csvBytes, err := fetchOHLCVCSV(ctx, client, normalizeSymbol(ticker), yb)
+			csvBytes, err := fetchOHLCVCSV(ctx, normalizeSymbol(ticker), yb)
 			if err != nil {
 				return err
 			}

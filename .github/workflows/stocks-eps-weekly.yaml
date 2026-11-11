@@ -38,6 +38,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Refresh P/E for all tickers
+        env:
+          ZENROWS_API_KEY: ${{ secrets.ZENROWS_API_KEY }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"

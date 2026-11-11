@@ -18,7 +18,7 @@ func newEpsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "eps [ticker] [year]",
 		Short: "Download historical EPS/P/E table as CSV to stdout",
-		Long: `Download price-to-earnings and EPS history from MacroTrends (chart redirect + /pe-ratio HTML table).
+		Long: `Download price-to-earnings and EPS history from MacroTrends (PE-ratio HTML table).
 
 Ticker: TICKER environment variable and/or first argument.
 Year:   YEAR environment and/or last argument; a single 4-digit argument sets year only (ticker from env).
@@ -41,9 +41,7 @@ With --write: writes/updates data/stocks/TICKER/eps.csv and per-year files in th
 			}
 
 			ctx := context.Background()
-			client := newHTTPClient(httpTimeout)
-
-			rows, err := fetchEPSHistory(ctx, client, normalizeSymbol(ticker))
+			rows, err := fetchEPSHistory(ctx, normalizeSymbol(ticker))
 			if err != nil {
 				return err
 			}

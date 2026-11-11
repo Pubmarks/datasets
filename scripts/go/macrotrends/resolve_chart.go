@@ -1,53 +1,16 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"strings"
 )
 
-// chartRedirectURL is the first-hop URL MacroTrends uses to redirect to
-// /stocks/charts/{TICKER}/{company-slug}/...
-func chartRedirectURL(symbol string) string {
-	return "https://www.macrotrends.net/stocks/charts/" + normalizeSymbol(symbol)
-}
-
-// resolveChartBaseURL follows redirects from /stocks/charts/{SYMBOL} to the canonical
-// .../stocks/charts/{SYMBOL}/{slug} URL (no trailing slash).
-func resolveChartBaseURL(ctx context.Context, client *http.Client, stockSymbol string) (string, error) {
-	symbol := normalizeSymbol(stockSymbol)
-	if symbol == "" {
-		return "", fmt.Errorf("empty stock symbol")
-	}
-	initial := chartRedirectURL(symbol)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, initial, nil)
-	if err != nil {
-		return "", err
-	}
-	applyDefaultHeaders(req)
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	final := strings.TrimRight(resp.Request.URL.String(), "/")
-	if err := validateChartCanonicalURL(final, symbol); err != nil {
-		return "", err
-	}
-	return final, nil
-}
-
-// resolveEPSPageURL is resolveChartBaseURL + "/pe-ratio".
-func resolveEPSPageURL(ctx context.Context, client *http.Client, stockSymbol string) (string, error) {
-	base, err := resolveChartBaseURL(ctx, client, stockSymbol)
-	if err != nil {
-		return "", err
-	}
-	return base + "/pe-ratio", nil
+// epsPageURL is the PE-ratio page. MacroTrends redirects /{TICKER}/{ticker}/pe-ratio
+// to /{TICKER}/{company-slug}/pe-ratio, including when the slug is not the ticker.
+func epsPageURL(symbol string) string {
+	symbol = normalizeSymbol(symbol)
+	return "https://www.macrotrends.net/stocks/charts/" + symbol + "/" + strings.ToLower(symbol) + "/pe-ratio"
 }
 
 func validateChartCanonicalURL(finalURL, expectedSymbol string) error {
