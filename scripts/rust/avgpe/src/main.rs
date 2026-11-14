@@ -6,7 +6,7 @@ mod validate;
 use std::env;
 use std::error::Error;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{Datelike, Local};
@@ -27,7 +27,7 @@ fn find_stocks_dir() -> Option<PathBuf> {
     }
 }
 
-fn process_ticker(ticker_dir: &PathBuf, years: u32, cpi: &CpiData) -> Result<String, String> {
+fn process_ticker(ticker_dir: &Path, years: u32, cpi: &CpiData) -> Result<String, String> {
     let ticker = ticker_dir
         .file_name()
         .and_then(|n| n.to_str())
@@ -43,7 +43,8 @@ fn process_ticker(ticker_dir: &PathBuf, years: u32, cpi: &CpiData) -> Result<Str
     // fs::write(&cut_path, &cut)
     //     .map_err(|e| format!("{ticker}: {e}"))?;
 
-    let stats = stats::compute_stats(&cut, &ticker, cpi).map_err(|e| format!("{ticker}: {e}"))?;
+    let stats =
+        stats::compute_stats(&cut, &ticker, years, cpi).map_err(|e| format!("{ticker}: {e}"))?;
     let json = serde_json::to_string_pretty(&stats).map_err(|e| format!("{ticker}: {e}"))?;
     let json_path = ticker_dir.join(format!("avgpe_{years}.json"));
     fs::write(&json_path, json + "\n").map_err(|e| format!("{ticker}: {e}"))?;
@@ -65,7 +66,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let current_year = Local::now().year() as u32;
     let cpi = Arc::new(CpiData::fetch(
-        current_year.saturating_sub(years),
+        current_year.saturating_sub(years + 1),
         current_year,
     )?);
 

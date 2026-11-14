@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::error::Error;
 
 use serde::Deserialize;
@@ -18,18 +18,30 @@ struct Observation {
     value: String,
 }
 
-/// Annual CPI values keyed by year, sourced from FRED (CPIAUCSL).
+/// Parse `"YYYY-MM"` or `"YYYY-MM-DD"` into `(year, month)`.
+pub fn parse_year_month(date: &str) -> Option<(u32, u32)> {
+    if date.len() < 7 || date.as_bytes()[4] != b'-' {
+        return None;
+    }
+    let year = date[..4].parse::<u32>().ok()?;
+    let month = date[5..7].parse::<u32>().ok()?;
+    if !(1..=12).contains(&month) {
+        return None;
+    }
+    Some((year, month))
+}
+
+/// Monthly CPI values keyed by `(year, month)`, sourced from FRED (`CPIAUCSL`).
 ///
-/// Use `adjustment_factor(year)` to get the multiplier that brings a dollar
-/// amount from `year` to the latest year in this dataset, then multiply it
-/// by the EPS value to get inflation-adjusted (real) EPS.
+/// Adjusts historical nominal EPS values to the latest published CPI month's
+/// dollars (`latest_cpi / cpi_at_month`).
 pub struct CpiData {
-    by_year: HashMap<u32, f64>,
+    by_month: BTreeMap<(u32, u32), f64>,
     latest_cpi: f64,
 }
 
 impl CpiData {
-    /// Fetch annual CPI from FRED for the given year range (inclusive).
+    /// Fetch monthly CPI from FRED for the given year range (inclusive).
     ///
     /// Reads `FRED_API_KEY` from the environment — call `dotenvy::dotenv()`
     /// before this if your key lives in a `.env` file.
@@ -40,7 +52,6 @@ impl CpiData {
             "{FRED_BASE}?series_id={SERIES_CPI}\
              &observation_start={start_year}-01-01\
              &observation_end={end_year}-12-31\
-             &frequency=a\
              &api_key={api_key}\
              &file_type=json"
         );
@@ -51,36 +62,37 @@ impl CpiData {
             return Err(format!("FRED error: {msg}").into());
         }
 
-        let mut by_year: HashMap<u32, f64> = HashMap::new();
+        let mut by_month: BTreeMap<(u32, u32), f64> = BTreeMap::new();
         for obs in resp.observations.as_deref().unwrap_or(&[]) {
             // FRED uses "." for missing values
             if obs.value == "." {
                 continue;
             }
-            if let (Ok(year), Ok(cpi)) = (obs.date[..4].parse::<u32>(), obs.value.parse::<f64>()) {
-                by_year.insert(year, cpi);
+            if let (Some(ym), Ok(cpi)) = (parse_year_month(&obs.date), obs.value.parse::<f64>()) {
+                by_month.insert(ym, cpi);
             }
         }
 
-        if by_year.is_empty() {
+        if by_month.is_empty() {
             return Err("FRED returned no usable CPI observations".into());
         }
 
-        let latest_year = *by_year.keys().max().unwrap();
-        let latest_cpi = by_year[&latest_year];
+        let latest_cpi = *by_month.values().next_back().unwrap();
 
         Ok(Self {
-            by_year,
+            by_month,
             latest_cpi,
         })
     }
 
-    /// Adjust a nominal EPS from `year` to the latest year's dollars.
-    /// Falls back to the raw EPS unchanged when the year has no CPI entry
-    /// (e.g. the current calendar year whose annual average isn't published yet).
-    pub fn adjust_eps_or_nominal(&self, eps: f64, year: u32) -> f64 {
-        match self.by_year.get(&year) {
-            Some(&base) if base > 0.0 => eps * (self.latest_cpi / base),
+    /// Adjust a nominal EPS from `(year, month)` to the latest CPI month's dollars.
+    ///
+    /// Uses that month's CPI when available, or the most recent prior published
+    /// month when `ym` isn't published yet (e.g. the current calendar month,
+    /// where `latest_cpi / latest_cpi == 1.0` leaves EPS unchanged).
+    pub fn adjust_eps_or_nominal(&self, eps: f64, ym: (u32, u32)) -> f64 {
+        match self.by_month.range(..=ym).next_back() {
+            Some((_, &base)) if base > 0.0 => eps * (self.latest_cpi / base),
             _ => eps,
         }
     }
@@ -89,18 +101,43 @@ impl CpiData {
     #[cfg(test)]
     pub fn empty() -> Self {
         Self {
-            by_year: HashMap::new(),
+            by_month: BTreeMap::new(),
             latest_cpi: 0.0,
         }
     }
 
     #[cfg(test)]
-    pub fn from_map(by_year: HashMap<u32, f64>) -> Self {
-        let latest_year = *by_year.keys().max().unwrap_or(&0);
-        let latest_cpi = by_year.get(&latest_year).copied().unwrap_or(0.0);
+    pub fn from_map(by_month: BTreeMap<(u32, u32), f64>) -> Self {
+        let latest_cpi = by_month.values().next_back().copied().unwrap_or(0.0);
         Self {
-            by_year,
+            by_month,
             latest_cpi,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_year_month_from_iso_dates() {
+        assert_eq!(parse_year_month("2026-11-13"), Some((2026, 11)));
+        assert_eq!(parse_year_month("2016-01"), Some((2016, 1)));
+        assert_eq!(parse_year_month("2026-13-01"), None);
+        assert_eq!(parse_year_month("2026"), None);
+    }
+
+    #[test]
+    fn adjusts_historical_month_and_falls_back_to_prior_for_unreleased_current_month() {
+        let cpi = CpiData::from_map(
+            [((2020, 6), 250.0), ((2026, 10), 300.0)]
+                .into_iter()
+                .collect(),
+        );
+        // 2020-06 scaled by 300 / 250 = 1.2
+        assert!((cpi.adjust_eps_or_nominal(2.0, (2020, 6)) - 2.4).abs() < 1e-12);
+        // 2026-11 (not yet released) uses 2026-10 (300 / 300 = 1.0)
+        assert!((cpi.adjust_eps_or_nominal(5.0, (2026, 11)) - 5.0).abs() < 1e-12);
     }
 }

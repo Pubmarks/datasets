@@ -27,10 +27,10 @@ pub fn cut_to_last_n_years(combined: &str, years: u32) -> Result<String, Box<dyn
 
     for result in reader.records() {
         let record = result?;
-        if let Some(date) = record.get(0) {
-            if date >= cutoff_str.as_str() {
-                writer.write_record(&record)?;
-            }
+        if let Some(date) = record.get(0)
+            && date >= cutoff_str.as_str()
+        {
+            writer.write_record(&record)?;
         }
     }
 
