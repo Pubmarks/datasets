@@ -3,10 +3,11 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""Update the stocks table in README.md from data/stocks/."""
+"""Update README.md stocks table and tickers.json from data/stocks/."""
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -26,16 +27,22 @@ def _year_range(ticker_dir: Path, filename: str) -> str | None:
 CDN_BASE = "https://pubmarks.github.io/datasets/stocks"
 
 
-def build_rows(data_root: Path) -> list[str]:
-    rows: list[str] = []
+def iter_stock_dirs(data_root: Path) -> list[Path]:
     if not data_root.is_dir():
-        return rows
+        return []
+    dirs: list[Path] = []
     for ticker_dir in sorted(data_root.iterdir()):
         if not ticker_dir.is_dir():
             continue
-        flat = ticker_dir / "ohlcv.csv"
-        if not flat.exists():
+        if not (ticker_dir / "ohlcv.csv").exists():
             continue
+        dirs.append(ticker_dir)
+    return dirs
+
+
+def build_rows(data_root: Path) -> list[str]:
+    rows: list[str] = []
+    for ticker_dir in iter_stock_dirs(data_root):
         ticker = ticker_dir.name.upper()
         ohlcv_url = f"{CDN_BASE}/{ticker_dir.name}/ohlcv.csv"
         eps_url = f"{CDN_BASE}/{ticker_dir.name}/eps.csv"
@@ -107,8 +114,21 @@ def update_readme(readme: Path, rows: list[str]) -> None:
     print(f"Updated README.md: {len(rows)} ticker(s)")
 
 
+def write_tickers_json(path: Path, data_root: Path) -> None:
+    tickers = [d.name.upper() for d in iter_stock_dirs(data_root)]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"tickers": tickers}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(f"Updated {path}: {len(tickers)} ticker(s)")
+
+
 def main() -> None:
-    update_readme(Path("README.md"), build_rows(Path("data/stocks")))
+    data_root = Path("data/stocks")
+    rows = build_rows(data_root)
+    update_readme(Path("README.md"), rows)
+    write_tickers_json(data_root / "tickers.json", data_root)
 
 
 if __name__ == "__main__":
