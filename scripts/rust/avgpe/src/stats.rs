@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::io::Cursor;
 
 use serde::Serialize;
 
-use crate::cpi::CpiData;
+use crate::cpi::{CpiData, parse_year_month};
 
 #[derive(Serialize)]
 pub struct Stats {
@@ -32,7 +32,12 @@ pub struct Stats {
     pub p_e_shiller: Option<f64>,
 }
 
-pub fn compute_stats(cut: &str, ticker: &str, cpi: &CpiData) -> Result<Stats, Box<dyn Error>> {
+pub fn compute_stats(
+    cut: &str,
+    ticker: &str,
+    years: u32,
+    cpi: &CpiData,
+) -> Result<Stats, Box<dyn Error>> {
     let mut reader = csv::Reader::from_reader(Cursor::new(cut));
     let headers = reader.headers()?.clone();
 
@@ -64,8 +69,8 @@ pub fn compute_stats(cut: &str, ticker: &str, cpi: &CpiData) -> Result<Stats, Bo
     let mut pos_values: Vec<f64> = Vec::new();
     let mut lossy_values: Vec<f64> = Vec::new();
     let mut ep_values: Vec<f64> = Vec::new();
-    // year → last EPS seen in that year (year-end value wins via overwrite)
-    let mut year_end_eps: HashMap<u32, f64> = HashMap::new();
+    // (year, month) → last EPS seen in that calendar month (month-end value wins via overwrite)
+    let mut month_end_eps: BTreeMap<(u32, u32), f64> = BTreeMap::new();
     let mut last_pe = 0f64;
     let mut last_price = 0f64;
     let mut last_eps = 0f64;
@@ -81,40 +86,40 @@ pub fn compute_stats(cut: &str, ticker: &str, cpi: &CpiData) -> Result<Stats, Bo
         }
         end_date = date.clone();
 
-        if let (Some(c), Some(e)) = (close, eps) {
-            if e != 0.0 {
-                let pe = c / e;
-                if pe > 0.0 {
-                    if pe < min_pe {
-                        min_pe = pe;
-                        min_date = date.clone();
-                    }
-                    if pe > max_pe {
-                        max_pe = pe;
-                        max_date = date.clone();
-                    }
-                    pos_values.push(pe);
-                } else {
-                    // lossy: max_lossy = closest to zero, min_lossy = most negative
-                    if max_lossy_pe.map_or(true, |h| pe > h) {
-                        max_lossy_pe = Some(pe);
-                        max_lossy_date = Some(date.clone());
-                    }
-                    if min_lossy_pe.map_or(true, |l| pe < l) {
-                        min_lossy_pe = Some(pe);
-                        min_lossy_date = Some(date.clone());
-                    }
-                    lossy_values.push(pe);
+        if let (Some(c), Some(e)) = (close, eps)
+            && e != 0.0
+        {
+            let pe = c / e;
+            if pe > 0.0 {
+                if pe < min_pe {
+                    min_pe = pe;
+                    min_date = date.clone();
                 }
-                // track year-end EPS for Shiller (both signs, last row of year wins)
-                if let Ok(year) = date[..4].parse::<u32>() {
-                    year_end_eps.insert(year, e);
+                if pe > max_pe {
+                    max_pe = pe;
+                    max_date = date.clone();
                 }
-                ep_values.push(e / c);
-                last_pe = pe;
-                last_price = c;
-                last_eps = e;
+                pos_values.push(pe);
+            } else {
+                // lossy: max_lossy = closest to zero, min_lossy = most negative
+                if max_lossy_pe.is_none_or(|h| pe > h) {
+                    max_lossy_pe = Some(pe);
+                    max_lossy_date = Some(date.clone());
+                }
+                if min_lossy_pe.is_none_or(|l| pe < l) {
+                    min_lossy_pe = Some(pe);
+                    min_lossy_date = Some(date.clone());
+                }
+                lossy_values.push(pe);
             }
+            // track month-end EPS for Shiller CAPE (both signs, last row of month wins)
+            if let Some(ym) = parse_year_month(&date) {
+                month_end_eps.insert(ym, e);
+            }
+            ep_values.push(e / c);
+            last_pe = pe;
+            last_price = c;
+            last_eps = e;
         }
     }
 
@@ -127,14 +132,18 @@ pub fn compute_stats(cut: &str, ticker: &str, cpi: &CpiData) -> Result<Stats, Bo
 
     let round4 = |v: f64| (v * 10000.0).round() / 10000.0;
 
-    let p_e_shiller = if year_end_eps.is_empty() {
+    let max_cape_months = (years as usize).saturating_mul(12).max(1);
+    let p_e_shiller = if month_end_eps.is_empty() {
         None
     } else {
-        let avg_real_eps = year_end_eps
+        let skip = month_end_eps.len().saturating_sub(max_cape_months);
+        let count = month_end_eps.len() - skip;
+        let avg_real_eps = month_end_eps
             .iter()
-            .map(|(&year, &e)| cpi.adjust_eps_or_nominal(e, year))
+            .skip(skip)
+            .map(|(&ym, &e)| cpi.adjust_eps_or_nominal(e, ym))
             .sum::<f64>()
-            / year_end_eps.len() as f64;
+            / count as f64;
         if avg_real_eps != 0.0 {
             Some(round4(last_price / avg_real_eps))
         } else {
@@ -183,7 +192,7 @@ pub fn compute_stats(cut: &str, ticker: &str, cpi: &CpiData) -> Result<Stats, Bo
     })
 }
 
-fn distribution(values: &mut Vec<f64>) -> Option<(f64, f64, i64)> {
+fn distribution(values: &mut [f64]) -> Option<(f64, f64, i64)> {
     if values.is_empty() {
         return None;
     }
@@ -228,7 +237,7 @@ date,open,high,low,close,volume,ttm_net_eps,pe_ratio
 
     #[test]
     fn min_and_max_pe_are_correct() {
-        let s = compute_stats(CUT, "TEST", &no_cpi()).unwrap();
+        let s = compute_stats(CUT, "TEST", 5, &no_cpi()).unwrap();
         // pe values: 100.0, 21.0, 60.0, 62.5
         assert_eq!(s.p_e_min, 21.0);
         assert_eq!(s.p_e_min_date, "2022-06-15");
@@ -238,7 +247,7 @@ date,open,high,low,close,volume,ttm_net_eps,pe_ratio
 
     #[test]
     fn last_row_fields_are_correct() {
-        let s = compute_stats(CUT, "TEST", &no_cpi()).unwrap();
+        let s = compute_stats(CUT, "TEST", 5, &no_cpi()).unwrap();
         assert_eq!(s.p_e_last, 62.5);
         assert_eq!(s.price_last, 250.0);
         assert_eq!(s.eps_last, 4.0);
@@ -246,7 +255,7 @@ date,open,high,low,close,volume,ttm_net_eps,pe_ratio
 
     #[test]
     fn start_and_end_dates_are_correct() {
-        let s = compute_stats(CUT, "TEST", &no_cpi()).unwrap();
+        let s = compute_stats(CUT, "TEST", 5, &no_cpi()).unwrap();
         assert_eq!(s.start_date, "2021-01-04");
         assert_eq!(s.end_date, "2024-12-31");
     }
@@ -257,7 +266,7 @@ date,open,high,low,close,volume,ttm_net_eps,pe_ratio
 date,open,high,low,close,volume,ttm_net_eps,pe_ratio
 2021-01-04,100,110,90,200.00,1000,,
 2022-06-15,105,115,95,105.00,2000,5.00,21.00";
-        let s = compute_stats(cut, "TEST", &no_cpi()).unwrap();
+        let s = compute_stats(cut, "TEST", 5, &no_cpi()).unwrap();
         assert_eq!(s.p_e_min, 21.0);
         assert_eq!(s.p_e_max, 21.0);
     }
@@ -268,7 +277,7 @@ date,open,high,low,close,volume,ttm_net_eps,pe_ratio
 date,open,high,low,close,volume,ttm_net_eps,pe_ratio
 2021-01-04,100,110,90,200.00,1000,0.00,0.00
 2022-06-15,105,115,95,105.00,2000,5.00,21.00";
-        let s = compute_stats(cut, "TEST", &no_cpi()).unwrap();
+        let s = compute_stats(cut, "TEST", 5, &no_cpi()).unwrap();
         assert_eq!(s.p_e_min, 21.0);
         assert_eq!(s.p_e_max, 21.0);
     }
@@ -280,7 +289,7 @@ date,open,high,low,close,volume,ttm_net_eps,pe_ratio
 2021-01-04,100,110,90,200.00,1000,-2.00,
 2021-06-01,100,110,90,100.00,1000,-10.00,
 2022-06-15,105,115,95,105.00,2000,5.00,21.00";
-        let s = compute_stats(cut, "TEST", &no_cpi()).unwrap();
+        let s = compute_stats(cut, "TEST", 5, &no_cpi()).unwrap();
         assert_eq!(s.p_e_min, 21.0);
         assert_eq!(s.p_e_max, 21.0);
         // max_lossy = closest to zero = 100/-10 = -10.0
@@ -293,20 +302,20 @@ date,open,high,low,close,volume,ttm_net_eps,pe_ratio
 
     #[test]
     fn no_lossy_pe_rows_gives_none_lossy_band() {
-        let s = compute_stats(CUT, "TEST", &no_cpi()).unwrap();
+        let s = compute_stats(CUT, "TEST", 5, &no_cpi()).unwrap();
         assert_eq!(s.p_e_max_lossy, None);
         assert_eq!(s.p_e_min_lossy, None);
     }
 
     #[test]
     fn ticker_name_is_stored() {
-        let s = compute_stats(CUT, "NVDA", &no_cpi()).unwrap();
+        let s = compute_stats(CUT, "NVDA", 5, &no_cpi()).unwrap();
         assert_eq!(s.ticker, "NVDA");
     }
 
     #[test]
     fn mean_median_mode_positive_band() {
-        let s = compute_stats(CUT, "TEST", &no_cpi()).unwrap();
+        let s = compute_stats(CUT, "TEST", 5, &no_cpi()).unwrap();
         // pe values: 100.0, 21.0, 60.0, 62.5
         // mean = 243.5 / 4 = 60.875
         assert_eq!(s.p_e_mean, 60.875);
@@ -325,9 +334,8 @@ date,open,high,low,close,volume,ttm_net_eps,pe_ratio
 2021-01-03,0,0,0,50.00,0,1.00,
 2021-01-04,0,0,0,50.50,0,1.00,";
         // pe values: 30.0, 30.5, 50.0, 50.5
-        // buckets: 30→2 (30.0 and 30.5 both round to 30), 50→2 (50.0→50, 50.5→51)
-        // wait: 30.0→30, 30.5→31, 50.0→50, 50.5→51 → all tie; lowest = 30
-        let s = compute_stats(cut, "TEST", &no_cpi()).unwrap();
+        // buckets: 30.0→30, 30.5→31, 50.0→50, 50.5→51 → all tie; lowest = 30
+        let s = compute_stats(cut, "TEST", 5, &no_cpi()).unwrap();
         assert_eq!(s.p_e_mode, 30);
     }
 
@@ -340,13 +348,13 @@ date,open,high,low,close,volume,ttm_net_eps,pe_ratio
 2021-01-03,0,0,0,20.60,0,1.00,
 2021-01-04,0,0,0,50.00,0,1.00,";
         // pe: 20.0→20, 20.3→20, 20.6→21, 50.0→50 → bucket 20 wins with count 2
-        let s = compute_stats(cut, "TEST", &no_cpi()).unwrap();
+        let s = compute_stats(cut, "TEST", 5, &no_cpi()).unwrap();
         assert_eq!(s.p_e_mode, 20);
     }
 
     #[test]
     fn no_lossy_rows_gives_none_distribution() {
-        let s = compute_stats(CUT, "TEST", &no_cpi()).unwrap();
+        let s = compute_stats(CUT, "TEST", 5, &no_cpi()).unwrap();
         assert_eq!(s.p_e_mean_lossy, None);
         assert_eq!(s.p_e_median_lossy, None);
         assert_eq!(s.p_e_mode_lossy, None);
@@ -364,7 +372,7 @@ date,open,high,low,close,volume,ttm_net_eps,pe_ratio
         // mean = -120 / 3 = -40.0
         // sorted: -50, -50, -20 → median = -50.0 (middle of 3)
         // buckets: -50→2, -20→1 → mode = -50
-        let s = compute_stats(cut, "TEST", &no_cpi()).unwrap();
+        let s = compute_stats(cut, "TEST", 5, &no_cpi()).unwrap();
         assert_eq!(s.p_e_mean_lossy, Some(-40.0));
         assert_eq!(s.p_e_median_lossy, Some(-50.0));
         assert_eq!(s.p_e_mode_lossy, Some(-50));
@@ -375,51 +383,75 @@ date,open,high,low,close,volume,ttm_net_eps,pe_ratio
         // CUT: pe values 100.0, 21.0, 60.0, 62.5
         // E/P values: 2/200=0.01, 5/105=0.047619, 3/180=0.016667, 4/250=0.016
         // mean(E/P) = (0.01 + 0.047619 + 0.016667 + 0.016) / 4 = 0.090286 / 4 = 0.022571
-        // p_e_harmonic = 1 / 0.022571 = 44.3068
-        let s = compute_stats(CUT, "TEST", &no_cpi()).unwrap();
+        // p_e_harmonic = 1 / 0.022571 = 44.3038
+        let s = compute_stats(CUT, "TEST", 5, &no_cpi()).unwrap();
         assert_eq!(s.p_e_harmonic, Some(44.3038));
     }
 
     #[test]
-    fn shiller_pe_uses_year_end_eps_inflation_adjusted() {
-        // CUT has one row per year: 2021 eps=2, 2022 eps=5, 2023 eps=3, 2024 eps=4
-        // With all CPI = 100 adjustment factor is 1.0 for every year.
-        // avg_real_eps = (2+5+3+4)/4 = 3.5
-        // last_price = 250.0 → Shiller P/E = 250/3.5 = 71.4286
+    fn shiller_pe_uses_month_end_eps_inflation_adjusted() {
+        // CUT has 4 distinct months:
+        // 2021-01 eps=2 (CPI 100 → real 4.0)
+        // 2022-06 eps=5 (CPI 125 → real 8.0)
+        // 2023-03 eps=3 (CPI 150 → real 4.0)
+        // 2024-12 eps=4 (CPI 200 → real 4.0)
+        // avg_real_eps = (4+8+4+4)/4 = 5.0
+        // last_price = 250.0 → Shiller P/E = 250 / 5.0 = 50.0
         let cpi = CpiData::from_map(
-            [(2021, 100.0), (2022, 100.0), (2023, 100.0), (2024, 100.0)]
-                .into_iter()
-                .collect(),
+            [
+                ((2021, 1), 100.0),
+                ((2022, 6), 125.0),
+                ((2023, 3), 150.0),
+                ((2024, 12), 200.0),
+            ]
+            .into_iter()
+            .collect(),
         );
-        let s = compute_stats(CUT, "TEST", &cpi).unwrap();
-        assert_eq!(s.p_e_shiller, Some(71.4286));
+        let s = compute_stats(CUT, "TEST", 5, &cpi).unwrap();
+        assert_eq!(s.p_e_shiller, Some(50.0));
     }
 
     #[test]
-    fn shiller_pe_includes_loss_years() {
+    fn shiller_pe_includes_loss_months() {
         let cut = "\
 date,open,high,low,close,volume,ttm_net_eps,pe_ratio
 2021-01-01,0,0,0,100.00,0,-4.00,
 2022-01-01,0,0,0,100.00,0,6.00,";
-        // year_end_eps: 2021 → -4, 2022 → 6
+        // month_end_eps: (2021, 1) → -4, (2022, 1) → 6
         // avg_real_eps (no CPI adjustment) = (-4+6)/2 = 1.0
         // Shiller P/E = 100.0 / 1.0 = 100.0
-        let s = compute_stats(cut, "TEST", &no_cpi()).unwrap();
+        let s = compute_stats(cut, "TEST", 5, &no_cpi()).unwrap();
         assert_eq!(s.p_e_shiller, Some(100.0));
     }
 
     #[test]
-    fn shiller_pe_uses_last_row_of_each_year() {
+    fn shiller_pe_uses_last_row_of_each_month() {
         let cut = "\
 date,open,high,low,close,volume,ttm_net_eps,pe_ratio
-2022-01-01,0,0,0,100.00,0,2.00,
-2022-06-01,0,0,0,100.00,0,8.00,
-2023-01-01,0,0,0,200.00,0,4.00,";
-        // 2022 has two rows: last EPS = 8.0 (not 2.0)
-        // year_end_eps: 2022 → 8, 2023 → 4
+2022-01-03,0,0,0,100.00,0,2.00,
+2022-01-31,0,0,0,100.00,0,8.00,
+2022-06-30,0,0,0,200.00,0,4.00,";
+        // 2022-01 has two rows: last EPS = 8.0 (overwrites 2.0)
+        // 2022-06 is a separate month in the same year: EPS = 4.0
         // avg_real_eps = (8+4)/2 = 6.0
         // Shiller P/E = 200.0 / 6.0 = 33.3333
-        let s = compute_stats(cut, "TEST", &no_cpi()).unwrap();
+        let s = compute_stats(cut, "TEST", 5, &no_cpi()).unwrap();
         assert_eq!(s.p_e_shiller, Some(33.3333));
+    }
+
+    #[test]
+    fn shiller_pe_caps_to_n_times_12_months() {
+        // Simulate a 1-year mid-month cut spanning 13 calendar months (2025-11 .. 2026-11).
+        // The oldest partial boundary month (2025-11 with tiny EPS=0.10) should be dropped,
+        // leaving the latest 12 months (2025-12 .. 2026-11) all with EPS=5.00.
+        let mut rows = String::from("date,open,high,low,close,volume,ttm_net_eps,pe_ratio\n");
+        rows.push_str("2025-11-15,0,0,0,100.00,0,0.10,\n");
+        rows.push_str("2025-12-31,0,0,0,100.00,0,5.00,\n");
+        for m in 1..=11 {
+            rows.push_str(&format!("2026-{m:02}-15,0,0,0,100.00,0,5.00,\n"));
+        }
+        let s = compute_stats(&rows, "TEST", 1, &no_cpi()).unwrap();
+        // Latest 12 months all have EPS=5.0 → avg_real_eps = 5.0 → CAPE = 100 / 5 = 20.0
+        assert_eq!(s.p_e_shiller, Some(20.0));
     }
 }

@@ -18,7 +18,7 @@ cargo run -- <YEARS>
 ```
 // startup (once)
 load .env
-fetch annual CPI from FRED (CPIAUCSL) for years [today-N .. today]
+fetch monthly CPI from FRED (CPIAUCSL) for years [today-(N+1) .. today]
 
 // per ticker (parallel, 10 threads)
 for each data/stocks/<TICKER>/combined.csv:
@@ -41,8 +41,8 @@ for each data/stocks/<TICKER>/combined.csv:
             update lossy band min/max      // max_lossy = closest to 0, min_lossy = most negative
             accumulate into lossy_values[]
 
-        // Shiller: track last EPS seen per calendar year (both signs)
-        year_end_eps[year] = eps          // overwrites — last row of year wins
+        // Shiller: track last EPS seen per calendar month (both signs)
+        month_end_eps[(year, month)] = eps // overwrites — last row of month wins
 
     // distribution (positive band)
     p_e_mean   = mean(pos_values)
@@ -55,14 +55,12 @@ for each data/stocks/<TICKER>/combined.csv:
     // distribution (lossy band) — null if no loss rows
     p_e_mean_lossy / p_e_median_lossy / p_e_mode_lossy
 
-    // Shiller P/E (CAPE)
-    for each year in year_end_eps:
-        if CPI[year] available:
-            real_eps = eps * (latest_cpi / CPI[year])   // adjust to today's dollars
-        else:                                             // current year, not yet published
-            real_eps = eps                               // already in today's dollars
+    // Shiller P/E (CAPE) — trailing N * 12 monthly observations
+    for each (year, month) in latest (N * 12) entries of month_end_eps:
+        cpi_ym   = CPI[(year, month)] or most recent prior published CPI
+        real_eps = eps * (latest_cpi / cpi_ym)
 
-    avg_real_eps = mean(real_eps values across all years)
+    avg_real_eps = mean(real_eps values across the N * 12 months)
     p_e_shiller  = last_price / avg_real_eps             // null if avg_real_eps == 0
 
     write avgpe_<N>.json
@@ -99,8 +97,9 @@ See `shape.json` for a live example. Field reference:
 
 ### Shiller P/E notes
 
-- Uses one EPS per year (last row of each calendar year)
-- All years included — loss years (negative EPS) lower the average, raising CAPE
-- EPS adjusted to today's dollars via FRED `CPIAUCSL` annual averages
-- Current calendar year EPS is included unadjusted (FRED annual not yet published)
-- CPI series: `CPIAUCSL` (All Urban Consumers, not seasonally adjusted)
+- Uses one EPS observation per calendar month (last row of each month) across the latest `N × 12` months (`60` for 5yr, `120` for 10yr), matching Shiller's monthly CAPE methodology
+- Capping to `N × 12` months drops any extra partial boundary month when a date cut spans `N × 12 + 1` calendar months mid-month
+- All months included — loss periods (negative EPS) lower the average, raising CAPE
+- EPS adjusted to latest published CPI month's dollars via monthly FRED `CPIAUCSL` observations (`latest_cpi / cpi_ym`)
+- If the current calendar month's CPI is not yet published, falls back to the most recent prior month's CPI (`latest_cpi / latest_cpi = 1.0`, leaving current EPS unchanged)
+- CPI series: `CPIAUCSL` (Consumer Price Index for All Urban Consumers, monthly, seasonally adjusted)
