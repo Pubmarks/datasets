@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Pubmarks · Stock P/E</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="favicon.svg" />
     <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
     <style>
       :root {
@@ -608,6 +610,7 @@
               <span>min / max</span>
             </div>
             <dl class="pe-stats">
+              <dt>Current</dt><dd>${fmtPe(cur)} <span style="color:var(--muted)">${data.end_date ?? ""}</span></dd>
               <dt>Mean</dt><dd>${fmtPe(data.p_e_mean)}</dd>
               <dt>Median</dt><dd>${fmtPe(med)}</dd>
               <dt>Mode</dt><dd>${data.p_e_mode ?? "—"}</dd>

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Pubmarks">
+  <rect width="32" height="32" rx="6" fill="#151922"/>
+  <path
+    d="M6 22 L10 16 L14 18 L20 10 L26 12"
+    fill="none"
+    stroke="#f7931a"
+    stroke-width="2.25"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <circle cx="26" cy="12" r="2.25" fill="#2962ff"/>
+</svg>
