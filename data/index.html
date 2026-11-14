@@ -19,19 +19,28 @@
       * {
         box-sizing: border-box;
       }
+      html {
+        height: 100%;
+      }
       body {
         margin: 0;
+        min-height: 100%;
+        height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
         font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
         background: var(--bg);
         color: var(--text);
         line-height: 1.45;
       }
       header {
+        flex-shrink: 0;
         display: flex;
         flex-wrap: wrap;
         align-items: center;
         gap: 12px 20px;
-        padding: 16px 20px;
+        padding: 12px 16px;
         border-bottom: 1px solid var(--border);
         background: var(--panel);
       }
@@ -67,22 +76,50 @@
       a.data-link:hover {
         text-decoration: underline;
       }
+      a.github-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        margin-left: auto;
+        border-radius: 8px;
+        color: var(--muted);
+        border: 1px solid transparent;
+        transition:
+          color 0.15s ease,
+          border-color 0.15s ease,
+          background 0.15s ease;
+      }
+      a.github-link:hover {
+        color: var(--text);
+        border-color: var(--border);
+        background: var(--bg);
+      }
+      a.github-link svg {
+        width: 22px;
+        height: 22px;
+        fill: currentColor;
+      }
       .layout {
+        flex: 1 1 auto;
+        min-height: 0;
+        width: 100%;
         display: flex;
-        align-items: flex-start;
-        gap: 16px;
-        padding: 16px 20px 32px;
-        max-width: 1600px;
-        margin: 0 auto;
+        align-items: stretch;
+        gap: 12px;
+        padding: 12px 16px;
       }
       .sidebar {
         flex: 0 0 300px;
         width: 300px;
-        position: sticky;
-        top: 12px;
+        max-width: min(300px, 36vw);
+        min-height: 0;
+        overflow-y: auto;
         display: flex;
         flex-direction: column;
         gap: 12px;
+        -webkit-overflow-scrolling: touch;
       }
       .sidebar > h2 {
         margin: 0;
@@ -93,16 +130,46 @@
         color: var(--muted);
       }
       .charts-column {
-        flex: 1 1 400px;
+        flex: 1 1 auto;
         min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .charts-stack {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
       }
       @media (max-width: 900px) {
+        body {
+          height: auto;
+          min-height: 100dvh;
+          overflow-x: hidden;
+          overflow-y: auto;
+        }
         .layout {
           flex-direction: column;
+          flex: none;
+          min-height: auto;
+          overflow: visible;
         }
         .sidebar {
+          flex: none;
           width: 100%;
-          position: static;
+          max-width: none;
+          overflow: visible;
+        }
+        .charts-column {
+          flex: none;
+          min-height: 58vh;
+        }
+        .charts-stack {
+          flex: 1 1 auto;
+          min-height: 58vh;
         }
       }
       .pe-card {
@@ -300,10 +367,10 @@
         text-decoration: underline;
       }
       .stats {
+        flex-shrink: 0;
         display: flex;
         flex-wrap: wrap;
         gap: 10px 24px;
-        margin-bottom: 16px;
         font-size: 0.9rem;
       }
       .stats span {
@@ -314,13 +381,23 @@
         font-weight: 600;
       }
       .panel {
+        flex: 1 1 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
         background: var(--panel);
         border: 1px solid var(--border);
         border-radius: 8px;
         overflow: hidden;
-        margin-bottom: 16px;
+      }
+      .panel-price {
+        flex-grow: 1.65;
+      }
+      .panel-pe {
+        flex-grow: 1;
       }
       .panel-title {
+        flex-shrink: 0;
         padding: 10px 14px;
         font-size: 0.8rem;
         text-transform: uppercase;
@@ -328,18 +405,18 @@
         color: var(--muted);
         border-bottom: 1px solid var(--border);
       }
-      #price-chart {
-        height: 480px;
-        min-height: 320px;
-      }
+      #price-chart,
       #pe-chart {
-        height: 220px;
-        min-height: 160px;
+        flex: 1 1 auto;
+        width: 100%;
+        min-height: 100px;
+        height: 100%;
       }
       #status {
-        padding: 12px 14px;
+        flex-shrink: 0;
+        padding: 4px 2px 0;
         color: var(--muted);
-        font-size: 0.9rem;
+        font-size: 0.85rem;
       }
       #status.error {
         color: #ef5350;
@@ -349,16 +426,23 @@
   <body>
     <header>
       <h1>Pubmarks datasets</h1>
-      <p>
-        Price and P/E from
-        <code>combined.csv</code> on GitHub Pages (TradingView Lightweight
-        Charts).
-      </p>
       <label for="ticker">Ticker</label>
       <select id="ticker" aria-label="Stock ticker"></select>
-      <a class="data-link" id="csv-link" href="#" target="_blank" rel="noopener"
-        >combined.csv</a
+      <a
+        class="github-link"
+        href="https://github.com/Pubmarks/datasets"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="View source on GitHub"
       >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"
+          />
+        </svg>
+      </a>
     </header>
     <main class="layout">
       <aside class="sidebar" aria-label="Average P/E statistics">
@@ -367,13 +451,15 @@
       </aside>
       <section class="charts-column">
         <div class="stats" id="stats" hidden></div>
-        <div class="panel">
-          <div class="panel-title">OHLCV · combined.csv</div>
-          <div id="price-chart"></div>
-        </div>
-        <div class="panel">
-          <div class="panel-title">P/E ratio · combined.csv</div>
-          <div id="pe-chart"></div>
+        <div class="charts-stack">
+          <div class="panel panel-price">
+            <div class="panel-title">OHLCV · combined.csv</div>
+            <div id="price-chart"></div>
+          </div>
+          <div class="panel panel-pe">
+            <div class="panel-title">P/E ratio · combined.csv</div>
+            <div id="pe-chart"></div>
+          </div>
         </div>
         <div id="status">Loading tickers…</div>
       </section>
@@ -659,13 +745,28 @@
         };
       }
 
-      function observeResize(root, chart) {
-        const ro = new ResizeObserver(() => {
+      function layoutCharts() {
+        for (const [root, chart] of [
+          [priceRoot, priceChart],
+          [peRoot, peChart],
+        ]) {
+          if (!chart) continue;
           const { width, height } = root.getBoundingClientRect();
-          chart.applyOptions({ width, height });
-        });
+          if (width > 0 && height > 0) {
+            chart.applyOptions({ width, height });
+          }
+        }
+      }
+
+      function observeResize(root, chart) {
+        const ro = new ResizeObserver(() => layoutCharts());
         ro.observe(root);
         return ro;
+      }
+
+      window.addEventListener("resize", layoutCharts);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", layoutCharts);
       }
 
       function isValidTimeRange(range) {
@@ -805,12 +906,15 @@
         } else {
           statsEl.hidden = true;
         }
+        requestAnimationFrame(layoutCharts);
       }
 
       async function loadCombined(ticker) {
         const url = combinedUrl(ticker);
-        csvLink.href = url;
-        csvLink.textContent = url.replace(`${CDN_BASE}/`, "");
+        if (csvLink) {
+          csvLink.href = url;
+          csvLink.textContent = url.replace(`${CDN_BASE}/`, "");
+        }
         setStatus(`Loading ${url}…`, false);
 
         const sidebarPromise = renderAvgpeSidebar(ticker).catch((err) => {
