@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pubmarks · Stock P/E</title>
+    <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0f1116;
+        --panel: #151922;
+        --border: #2a2e39;
+        --text: #d1d4dc;
+        --muted: #787b86;
+        --accent: #2962ff;
+        --pe: #f7931a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.45;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px 20px;
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+      }
+      header h1 {
+        margin: 0;
+        font-size: 1.1rem;
+        font-weight: 600;
+      }
+      header p {
+        margin: 0;
+        font-size: 0.85rem;
+        color: var(--muted);
+        flex: 1 1 200px;
+      }
+      label {
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+      select {
+        background: var(--bg);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 0.95rem;
+        min-width: 7rem;
+      }
+      a.data-link {
+        color: var(--accent);
+        font-size: 0.85rem;
+        text-decoration: none;
+      }
+      a.data-link:hover {
+        text-decoration: underline;
+      }
+      main {
+        padding: 16px 20px 32px;
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+      .stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 24px;
+        margin-bottom: 16px;
+        font-size: 0.9rem;
+      }
+      .stats span {
+        color: var(--muted);
+      }
+      .stats strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+        margin-bottom: 16px;
+      }
+      .panel-title {
+        padding: 10px 14px;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        border-bottom: 1px solid var(--border);
+      }
+      #price-chart {
+        height: 480px;
+        min-height: 320px;
+      }
+      #pe-chart {
+        height: 220px;
+        min-height: 160px;
+      }
+      #status {
+        padding: 12px 14px;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      #status.error {
+        color: #ef5350;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Pubmarks datasets</h1>
+      <p>
+        Price and P/E from
+        <code>combined.csv</code> on GitHub Pages (TradingView Lightweight
+        Charts).
+      </p>
+      <label for="ticker">Ticker</label>
+      <select id="ticker" aria-label="Stock ticker"></select>
+      <a class="data-link" id="csv-link" href="#" target="_blank" rel="noopener"
+        >combined.csv</a
+      >
+    </header>
+    <main>
+      <div class="stats" id="stats" hidden></div>
+      <div class="panel">
+        <div class="panel-title">OHLCV · combined.csv</div>
+        <div id="price-chart"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">P/E ratio · combined.csv</div>
+        <div id="pe-chart"></div>
+      </div>
+      <div id="status">Loading tickers…</div>
+    </main>
+    <script>
+      const CDN_BASE = "https://pubmarks.github.io/datasets";
+
+      const tickerEl = document.getElementById("ticker");
+      const csvLink = document.getElementById("csv-link");
+      const statsEl = document.getElementById("stats");
+      const statusEl = document.getElementById("status");
+      const priceRoot = document.getElementById("price-chart");
+      const peRoot = document.getElementById("pe-chart");
+
+      let priceChart = null;
+      let candleSeries = null;
+      let peChart = null;
+      let peSeries = null;
+      let timeScalesLinked = false;
+      let syncingTimeRange = false;
+
+      function setStatus(message, isError) {
+        statusEl.textContent = message;
+        statusEl.classList.toggle("error", Boolean(isError));
+        statusEl.hidden = !message;
+      }
+
+      function combinedUrl(ticker) {
+        return `${CDN_BASE}/stocks/${encodeURIComponent(ticker)}/combined.csv`;
+      }
+
+      function optionalNum(raw) {
+        if (raw === "" || raw === undefined) return null;
+        const n = Number(raw);
+        return Number.isFinite(n) ? n : null;
+      }
+
+      function parseCSV(text) {
+        const lines = text.trim().split(/\r?\n/);
+        if (lines.length < 2) return [];
+        const header = lines[0].split(",").map((h) => h.trim());
+        const idx = (name) => header.indexOf(name);
+        const dateIdx = idx("date");
+        const openIdx = idx("open");
+        const highIdx = idx("high");
+        const lowIdx = idx("low");
+        const closeIdx = idx("close");
+        const peIdx = idx("pe_ratio");
+        const epsIdx = idx("ttm_net_eps");
+        if (dateIdx < 0 || closeIdx < 0) {
+          throw new Error("combined.csv missing date or close column");
+        }
+        const rows = [];
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(",");
+          const date = cols[dateIdx]?.trim();
+          if (!date) continue;
+          rows.push({
+            date,
+            open: openIdx >= 0 ? optionalNum(cols[openIdx]?.trim()) : null,
+            high: highIdx >= 0 ? optionalNum(cols[highIdx]?.trim()) : null,
+            low: lowIdx >= 0 ? optionalNum(cols[lowIdx]?.trim()) : null,
+            close: optionalNum(cols[closeIdx]?.trim()),
+            pe: peIdx >= 0 ? optionalNum(cols[peIdx]?.trim()) : null,
+            eps: epsIdx >= 0 ? optionalNum(cols[epsIdx]?.trim()) : null,
+          });
+        }
+        return rows;
+      }
+
+      function baseChartOptions() {
+        return {
+          layout: {
+            background: { type: "solid", color: "#151922" },
+            textColor: "#d1d4dc",
+          },
+          grid: {
+            vertLines: { color: "#2a2e39" },
+            horzLines: { color: "#2a2e39" },
+          },
+          rightPriceScale: { borderColor: "#2a2e39" },
+          timeScale: { borderColor: "#2a2e39", timeVisible: true },
+          crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+        };
+      }
+
+      function observeResize(root, chart) {
+        const ro = new ResizeObserver(() => {
+          const { width, height } = root.getBoundingClientRect();
+          chart.applyOptions({ width, height });
+        });
+        ro.observe(root);
+        return ro;
+      }
+
+      function isValidTimeRange(range) {
+        return Boolean(range && range.from != null && range.to != null);
+      }
+
+      function applyVisibleTimeRange(from, to) {
+        const range = from.timeScale().getVisibleRange();
+        if (!isValidTimeRange(range)) return false;
+        try {
+          syncingTimeRange = true;
+          to.timeScale().setVisibleRange(range);
+          return true;
+        } catch (err) {
+          console.warn("setVisibleRange", err);
+          return false;
+        } finally {
+          syncingTimeRange = false;
+        }
+      }
+
+      function linkTimeScales(a, b) {
+        if (timeScalesLinked) return;
+        const onRangeChange = (source, target) => {
+          source.timeScale().subscribeVisibleTimeRangeChange((range) => {
+            if (syncingTimeRange || !isValidTimeRange(range)) return;
+            try {
+              syncingTimeRange = true;
+              target.timeScale().setVisibleRange(range);
+            } catch (err) {
+              console.warn("sync visible range", err);
+            } finally {
+              syncingTimeRange = false;
+            }
+          });
+        };
+        onRangeChange(a, b);
+        onRangeChange(b, a);
+        timeScalesLinked = true;
+      }
+
+      function fitAndSyncTimeScales() {
+        priceChart.timeScale().fitContent();
+        let attempts = 0;
+        const trySync = () => {
+          if (applyVisibleTimeRange(priceChart, peChart)) return;
+          attempts += 1;
+          if (attempts < 60) requestAnimationFrame(trySync);
+        };
+        requestAnimationFrame(trySync);
+      }
+
+      function ensureCharts() {
+        if (!priceChart) {
+          priceChart = LightweightCharts.createChart(priceRoot, {
+            ...baseChartOptions(),
+            rightPriceScale: {
+              borderColor: "#2a2e39",
+              mode: LightweightCharts.PriceScaleMode.Logarithmic,
+            },
+          });
+          candleSeries = priceChart.addCandlestickSeries({
+            upColor: "#26a69a",
+            downColor: "#ef5350",
+            borderVisible: false,
+            wickUpColor: "#26a69a",
+            wickDownColor: "#ef5350",
+          });
+          observeResize(priceRoot, priceChart);
+        }
+        if (!peChart) {
+          peChart = LightweightCharts.createChart(peRoot, {
+            ...baseChartOptions(),
+            timeScale: { ...baseChartOptions().timeScale, timeVisible: false },
+          });
+          peSeries = peChart.addLineSeries({
+            color: "#f7931a",
+            lineWidth: 2,
+            priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+          });
+          observeResize(peRoot, peChart);
+          linkTimeScales(priceChart, peChart);
+        }
+      }
+
+      function renderCharts(rows) {
+        ensureCharts();
+
+        const candles = rows
+          .filter(
+            (r) =>
+              r.open != null &&
+              r.high != null &&
+              r.low != null &&
+              r.close != null
+          )
+          .map((r) => ({
+            time: r.date,
+            open: r.open,
+            high: r.high,
+            low: r.low,
+            close: r.close,
+          }));
+        candleSeries.setData(candles);
+
+        const pePoints = rows
+          .filter((r) => r.pe != null)
+          .map((r) => ({ time: r.date, value: r.pe }));
+        peSeries.setData(pePoints);
+
+        fitAndSyncTimeScales();
+
+        const withPe = rows.filter((r) => r.pe != null);
+        const lastPe = withPe.length ? withPe[withPe.length - 1] : null;
+        const lastBar = rows.length ? rows[rows.length - 1] : null;
+        const summary = lastPe || lastBar;
+        if (summary) {
+          statsEl.hidden = false;
+          const peFmt =
+            lastPe?.pe != null ? lastPe.pe.toFixed(2) : "—";
+          const epsPart =
+            summary.eps != null
+              ? `<span>TTM EPS</span> <strong>${summary.eps.toFixed(2)}</strong>`
+              : "";
+          const closePart =
+            summary.close != null
+              ? `<span>Close</span> <strong>${summary.close.toFixed(2)}</strong>`
+              : "";
+          statsEl.innerHTML = `
+            <span>As of</span> <strong>${summary.date}</strong>
+            <span>P/E</span> <strong>${peFmt}</strong>
+            ${epsPart}
+            ${closePart}
+            <span>Bars</span> <strong>${candles.length.toLocaleString()}</strong>
+            <span>P/E points</span> <strong>${pePoints.length.toLocaleString()}</strong>
+          `;
+        } else {
+          statsEl.hidden = true;
+        }
+      }
+
+      async function loadCombined(ticker) {
+        const url = combinedUrl(ticker);
+        csvLink.href = url;
+        csvLink.textContent = url.replace(`${CDN_BASE}/`, "");
+        setStatus(`Loading ${url}…`, false);
+
+        const res = await fetch(url, { cache: "no-cache" });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status} for ${url}`);
+        }
+        const rows = parseCSV(await res.text());
+        if (!rows.length) {
+          throw new Error("No rows in combined.csv");
+        }
+        renderCharts(rows);
+        setStatus("", false);
+      }
+
+      function tickerFromQuery() {
+        const p = new URLSearchParams(location.search).get("t");
+        return p ? p.toUpperCase() : null;
+      }
+
+      function syncQuery(ticker) {
+        const u = new URL(location.href);
+        u.searchParams.set("t", ticker);
+        history.replaceState(null, "", u);
+      }
+
+      async function init() {
+        const url = `${CDN_BASE}/stocks/tickers.json`;
+        const res = await fetch(url, { cache: "no-cache" });
+        if (!res.ok) {
+          throw new Error(`Could not load ${url}`);
+        }
+        const { tickers } = await res.json();
+        if (!Array.isArray(tickers) || !tickers.length) {
+          throw new Error(`${url} has no tickers`);
+        }
+        tickerEl.replaceChildren(
+          ...tickers.map((t) => {
+            const o = document.createElement("option");
+            o.value = t;
+            o.textContent = t;
+            return o;
+          })
+        );
+        const initial = tickerFromQuery();
+        if (initial && tickers.includes(initial)) {
+          tickerEl.value = initial;
+        }
+        await loadCombined(tickerEl.value);
+      }
+
+      tickerEl.addEventListener("change", async () => {
+        const t = tickerEl.value;
+        syncQuery(t);
+        try {
+          await loadCombined(t);
+        } catch (e) {
+          setStatus(e.message, true);
+        }
+      });
+
+      init().catch((e) => setStatus(e.message, true));
+    </script>
+  </body>
+</html>
