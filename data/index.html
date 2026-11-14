@@ -67,10 +67,237 @@
       a.data-link:hover {
         text-decoration: underline;
       }
-      main {
+      .layout {
+        display: flex;
+        align-items: flex-start;
+        gap: 16px;
         padding: 16px 20px 32px;
-        max-width: 1400px;
+        max-width: 1600px;
         margin: 0 auto;
+      }
+      .sidebar {
+        flex: 0 0 300px;
+        width: 300px;
+        position: sticky;
+        top: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .sidebar > h2 {
+        margin: 0;
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+      }
+      .charts-column {
+        flex: 1 1 400px;
+        min-width: 0;
+      }
+      @media (max-width: 900px) {
+        .layout {
+          flex-direction: column;
+        }
+        .sidebar {
+          width: 100%;
+          position: static;
+        }
+      }
+      .pe-card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 14px;
+      }
+      .pe-card-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .pe-card-head h3 {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 600;
+      }
+      .pe-card-dates {
+        font-size: 0.75rem;
+        color: var(--muted);
+        text-align: right;
+      }
+      .pe-versus {
+        font-size: 0.9rem;
+        margin-bottom: 12px;
+      }
+      .pe-versus strong {
+        font-size: 1.35rem;
+        font-weight: 600;
+      }
+      .pe-versus .tag {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+      .tag-high {
+        background: rgba(239, 83, 80, 0.2);
+        color: #ef9a9a;
+      }
+      .tag-low {
+        background: rgba(38, 166, 154, 0.2);
+        color: #80cbc4;
+      }
+      .tag-mid {
+        background: rgba(120, 123, 134, 0.25);
+        color: var(--muted);
+      }
+      .pe-range {
+        position: relative;
+        height: 40px;
+        margin: 10px 0 8px;
+        cursor: crosshair;
+      }
+      .pe-range-crosshair {
+        position: absolute;
+        top: 8px;
+        width: 1px;
+        height: 24px;
+        background: rgba(209, 212, 220, 0.9);
+        transform: translateX(-50%);
+        pointer-events: none;
+        z-index: 4;
+      }
+      .pe-range-readout {
+        position: absolute;
+        top: 0;
+        transform: translateX(-50%);
+        font-size: 0.7rem;
+        font-variant-numeric: tabular-nums;
+        color: var(--text);
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 2px 6px;
+        pointer-events: none;
+        z-index: 5;
+        white-space: nowrap;
+      }
+      .pe-range-track {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 10px;
+        height: 8px;
+        border-radius: 4px;
+        background: linear-gradient(
+          90deg,
+          rgba(38, 166, 154, 0.35),
+          rgba(247, 147, 26, 0.35),
+          rgba(239, 83, 80, 0.35)
+        );
+      }
+      .pe-marker {
+        position: absolute;
+        top: 4px;
+        transform: translateX(-50%);
+        width: 2px;
+        height: 20px;
+        border-radius: 1px;
+        background: var(--muted);
+        opacity: 0.9;
+        z-index: 1;
+        pointer-events: none;
+      }
+      .pe-marker.pe-current {
+        width: 3px;
+        height: 22px;
+        top: 3px;
+        background: var(--accent);
+        opacity: 1;
+        z-index: 3;
+      }
+      .pe-marker.pe-median {
+        background: #f7931a;
+      }
+      .pe-marker.pe-mean {
+        background: #ab47bc;
+      }
+      .pe-marker.pe-mode {
+        background: #78909c;
+      }
+      .pe-marker.pe-harmonic {
+        background: #29b6f6;
+      }
+      .pe-marker.pe-shiller {
+        background: #ff7043;
+      }
+      .pe-range-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 10px;
+        margin: 0 0 12px;
+        font-size: 0.65rem;
+        color: var(--muted);
+      }
+      .pe-range-legend span::before {
+        content: "";
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        margin-right: 4px;
+        vertical-align: middle;
+        background: var(--muted);
+        opacity: 0.7;
+      }
+      .pe-range-legend .lg-median::before {
+        background: #f7931a;
+      }
+      .pe-range-legend .lg-mean::before {
+        background: #ab47bc;
+      }
+      .pe-range-legend .lg-harmonic::before {
+        background: #29b6f6;
+      }
+      .pe-range-legend .lg-shiller::before {
+        background: #ff7043;
+      }
+      .pe-range-legend .lg-now::before {
+        background: var(--accent);
+      }
+      .pe-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px 12px;
+        font-size: 0.8rem;
+      }
+      .pe-stats dt {
+        margin: 0;
+        color: var(--muted);
+      }
+      .pe-stats dd {
+        margin: 0;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      .pe-card-empty {
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      .pe-card a.json-link {
+        display: block;
+        margin-top: 10px;
+        font-size: 0.75rem;
+        color: var(--accent);
+        text-decoration: none;
+      }
+      .pe-card a.json-link:hover {
+        text-decoration: underline;
       }
       .stats {
         display: flex;
@@ -133,17 +360,23 @@
         >combined.csv</a
       >
     </header>
-    <main>
-      <div class="stats" id="stats" hidden></div>
-      <div class="panel">
-        <div class="panel-title">OHLCV · combined.csv</div>
-        <div id="price-chart"></div>
-      </div>
-      <div class="panel">
-        <div class="panel-title">P/E ratio · combined.csv</div>
-        <div id="pe-chart"></div>
-      </div>
-      <div id="status">Loading tickers…</div>
+    <main class="layout">
+      <aside class="sidebar" aria-label="Average P/E statistics">
+        <h2>Trailing avg P/E</h2>
+        <div id="avgpe-panels">Loading…</div>
+      </aside>
+      <section class="charts-column">
+        <div class="stats" id="stats" hidden></div>
+        <div class="panel">
+          <div class="panel-title">OHLCV · combined.csv</div>
+          <div id="price-chart"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">P/E ratio · combined.csv</div>
+          <div id="pe-chart"></div>
+        </div>
+        <div id="status">Loading tickers…</div>
+      </section>
     </main>
     <script>
       const CDN_BASE = "https://pubmarks.github.io/datasets";
@@ -154,6 +387,7 @@
       const statusEl = document.getElementById("status");
       const priceRoot = document.getElementById("price-chart");
       const peRoot = document.getElementById("pe-chart");
+      const avgpePanels = document.getElementById("avgpe-panels");
 
       let priceChart = null;
       let candleSeries = null;
@@ -170,6 +404,204 @@
 
       function combinedUrl(ticker) {
         return `${CDN_BASE}/stocks/${encodeURIComponent(ticker)}/combined.csv`;
+      }
+
+      function avgpeUrl(ticker, years) {
+        return `${CDN_BASE}/stocks/${encodeURIComponent(ticker)}/avgpe_${years}.json`;
+      }
+
+      function fmtPe(value, digits = 1) {
+        if (value == null || !Number.isFinite(value)) return "—";
+        return value.toFixed(digits);
+      }
+
+      function pctVs(base, value) {
+        if (!Number.isFinite(base) || base === 0 || !Number.isFinite(value)) {
+          return null;
+        }
+        return ((value / base - 1) * 100);
+      }
+
+      function rangePct(value, min, max) {
+        if (
+          !Number.isFinite(value) ||
+          !Number.isFinite(min) ||
+          !Number.isFinite(max) ||
+          max <= min
+        ) {
+          return 50;
+        }
+        return Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
+      }
+
+      function versusTag(pct) {
+        if (pct == null) {
+          return `<span class="tag tag-mid">vs median</span>`;
+        }
+        const abs = Math.abs(pct);
+        const label = `${pct >= 0 ? "+" : ""}${pct.toFixed(0)}% vs median`;
+        if (abs < 5) return `<span class="tag tag-mid">${label}</span>`;
+        if (pct > 0) return `<span class="tag tag-high">${label}</span>`;
+        return `<span class="tag tag-low">${label}</span>`;
+      }
+
+      function bandExtents(data) {
+        const vals = [
+          data.p_e_min,
+          data.p_e_max,
+          data.p_e_last,
+          data.p_e_mean,
+          data.p_e_median,
+          data.p_e_mode,
+          data.p_e_harmonic,
+          data.p_e_shiller,
+        ].filter((v) => v != null && Number.isFinite(v));
+        if (!vals.length) return { lo: 0, hi: 1 };
+        return { lo: Math.min(...vals), hi: Math.max(...vals) };
+      }
+
+      function markerHtml(label, value, lo, hi, extraClass = "") {
+        const left = rangePct(value, lo, hi);
+        return `<div class="pe-marker ${extraClass}" style="left:${left}%" title="${label}: ${fmtPe(value)}" role="img" aria-label="${label}"></div>`;
+      }
+
+      function renderPeWindowCard(years, data, ticker) {
+        const jsonHref = avgpeUrl(ticker, years);
+        if (!data) {
+          return `<div class="pe-card pe-card-empty">${years}-year stats unavailable.</div>`;
+        }
+        const min = data.p_e_min;
+        const max = data.p_e_max;
+        const cur = data.p_e_last;
+        const med = data.p_e_median;
+        const vsMed = pctVs(med, cur);
+        const range =
+          data.start_date && data.end_date
+            ? `${data.start_date} → ${data.end_date}`
+            : "";
+        const { lo, hi } = bandExtents(data);
+
+        const markerDefs = [
+          { label: "min", value: min, class: "" },
+          { label: "mean", value: data.p_e_mean, class: "pe-mean" },
+          { label: "median", value: med, class: "pe-median" },
+          { label: "mode", value: data.p_e_mode, class: "pe-mode" },
+          { label: "harmonic", value: data.p_e_harmonic, class: "pe-harmonic" },
+          { label: "Shiller", value: data.p_e_shiller, class: "pe-shiller" },
+          { label: "now", value: cur, class: "pe-current" },
+          { label: "max", value: max, class: "" },
+        ].filter((m) => Number.isFinite(m.value));
+
+        const markers = markerDefs
+          .map((m) => markerHtml(m.label, m.value, lo, hi, m.class))
+          .join("");
+
+        return `
+          <div class="pe-card">
+            <div class="pe-card-head">
+              <h3>${years} years</h3>
+              <div class="pe-card-dates">${range}</div>
+            </div>
+            <div class="pe-versus">
+              <strong>${fmtPe(cur)}</strong> current P/E
+              ${versusTag(vsMed)}
+            </div>
+            <div class="pe-range" data-lo="${lo}" data-hi="${hi}">
+              <div class="pe-range-readout" hidden>P/E —</div>
+              <div class="pe-range-crosshair" hidden></div>
+              <div class="pe-range-track"></div>
+              ${markers}
+            </div>
+            <div class="pe-range-legend">
+              <span class="lg-now">now</span>
+              <span class="lg-median">median</span>
+              <span class="lg-mean">mean</span>
+              <span>mode</span>
+              <span class="lg-harmonic">harmonic</span>
+              <span class="lg-shiller">Shiller</span>
+              <span>min / max</span>
+            </div>
+            <dl class="pe-stats">
+              <dt>Mean</dt><dd>${fmtPe(data.p_e_mean)}</dd>
+              <dt>Median</dt><dd>${fmtPe(med)}</dd>
+              <dt>Mode</dt><dd>${data.p_e_mode ?? "—"}</dd>
+              <dt>Harmonic</dt><dd>${fmtPe(data.p_e_harmonic)}</dd>
+              <dt>Shiller (CAPE)</dt><dd>${fmtPe(data.p_e_shiller)}</dd>
+              <dt>Min (date)</dt><dd>${fmtPe(min)} <span style="color:var(--muted)">${data.p_e_min_date ?? ""}</span></dd>
+              <dt>Max (date)</dt><dd>${fmtPe(max)} <span style="color:var(--muted)">${data.p_e_max_date ?? ""}</span></dd>
+            </dl>
+            <a class="json-link" href="${jsonHref}" target="_blank" rel="noopener">avgpe_${years}.json</a>
+          </div>
+        `;
+      }
+
+      async function fetchAvgpe(ticker, years) {
+        const url = avgpeUrl(ticker, years);
+        const res = await fetch(url, { cache: "no-cache" });
+        if (!res.ok) return null;
+        return res.json();
+      }
+
+      function wirePeRangeScrubbers(root) {
+        root.querySelectorAll(".pe-range").forEach((el) => {
+          const lo = Number(el.dataset.lo);
+          const hi = Number(el.dataset.hi);
+          const cross = el.querySelector(".pe-range-crosshair");
+          const readout = el.querySelector(".pe-range-readout");
+          if (
+            !cross ||
+            !readout ||
+            !Number.isFinite(lo) ||
+            !Number.isFinite(hi) ||
+            hi <= lo
+          ) {
+            return;
+          }
+
+          const track = el.querySelector(".pe-range-track");
+
+          const hide = () => {
+            cross.hidden = true;
+            readout.hidden = true;
+          };
+
+          const showAt = (clientX) => {
+            const rect = track.getBoundingClientRect();
+            if (rect.width <= 0) return;
+            const x = Math.min(rect.right, Math.max(rect.left, clientX));
+            const pct = (x - rect.left) / rect.width;
+            const value = lo + pct * (hi - lo);
+            const leftPct = pct * 100;
+            cross.style.left = `${leftPct}%`;
+            readout.style.left = `${leftPct}%`;
+            readout.textContent = `P/E ${fmtPe(value, 2)}`;
+            cross.hidden = false;
+            readout.hidden = false;
+          };
+
+          el.addEventListener("mousemove", (e) => showAt(e.clientX));
+          el.addEventListener("mouseleave", hide);
+          el.addEventListener(
+            "touchmove",
+            (e) => {
+              if (e.touches[0]) showAt(e.touches[0].clientX);
+            },
+            { passive: true }
+          );
+          el.addEventListener("touchend", hide);
+        });
+      }
+
+      async function renderAvgpeSidebar(ticker) {
+        avgpePanels.textContent = "Loading…";
+        const [avg5, avg10] = await Promise.all([
+          fetchAvgpe(ticker, 5),
+          fetchAvgpe(ticker, 10),
+        ]);
+        avgpePanels.innerHTML =
+          renderPeWindowCard(5, avg5, ticker) +
+          renderPeWindowCard(10, avg10, ticker);
+        wirePeRangeScrubbers(avgpePanels);
       }
 
       function optionalNum(raw) {
@@ -381,6 +813,10 @@
         csvLink.textContent = url.replace(`${CDN_BASE}/`, "");
         setStatus(`Loading ${url}…`, false);
 
+        const sidebarPromise = renderAvgpeSidebar(ticker).catch((err) => {
+          avgpePanels.innerHTML = `<div class="pe-card pe-card-empty">${err.message}</div>`;
+        });
+
         const res = await fetch(url, { cache: "no-cache" });
         if (!res.ok) {
           throw new Error(`HTTP ${res.status} for ${url}`);
@@ -390,6 +826,7 @@
           throw new Error("No rows in combined.csv");
         }
         renderCharts(rows);
+        await sidebarPromise;
         setStatus("", false);
       }
 
