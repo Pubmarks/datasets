@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+)
 
 const chartJSONFixture = `<html><body><table class="mtf-table mtf-peers"><thead><tr><th>Company</th></tr></thead></table>
 <script>
@@ -31,6 +35,46 @@ func TestParseEPSHistoryFromChartJSON(t *testing.T) {
 	}
 	if rows[1].peRatio != nil {
 		t.Errorf("null pe should be nil, got %v", *rows[1].peRatio)
+	}
+}
+
+func TestFetchEPSHistoryRetriesTruncatedPage(t *testing.T) {
+	const truncated = `<html><head><title>Uber Technologies PE Ratio | UBER | MacroTrends</title></head><body></body></html>`
+	const finalURL = "https://www.macrotrends.net/stocks/charts/UBER/uber-technologies/pe-ratio"
+
+	calls := 0
+	var waits []string
+	get := func(_ context.Context, _, waitFor string) ([]byte, string, error) {
+		calls++
+		waits = append(waits, waitFor)
+		if calls == 1 {
+			return []byte(truncated), finalURL, nil
+		}
+		return []byte(chartJSONFixture), finalURL, nil
+	}
+	rows, err := fetchEPSHistoryWith(context.Background(), "UBER", get, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || calls != 2 {
+		t.Fatalf("rows=%d calls=%d, want 2 rows after 2 calls", len(rows), calls)
+	}
+	// only the retry waits for the page content
+	if waits[0] != "" || waits[1] != epsPageReadySelector {
+		t.Errorf("wait_for per attempt = %q", waits)
+	}
+
+	calls = 0
+	alwaysTruncated := func(context.Context, string, string) ([]byte, string, error) {
+		calls++
+		return []byte(truncated), finalURL, nil
+	}
+	_, err = fetchEPSHistoryWith(context.Background(), "UBER", alwaysTruncated, 0)
+	if err == nil || calls != epsFetchAttempts {
+		t.Fatalf("err=%v calls=%d, want an error after %d calls", err, calls, epsFetchAttempts)
+	}
+	if !strings.Contains(err.Error(), "Uber Technologies PE Ratio") {
+		t.Errorf("error should name the page title: %v", err)
 	}
 }
 

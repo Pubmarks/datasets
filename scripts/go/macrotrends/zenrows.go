@@ -21,6 +21,13 @@ const (
 // ZENROWS_API_KEY comes from the environment (a GitHub Actions secret in CI).
 // The returned URL is Zr-Final-Url when ZenRows followed a redirect.
 func zenrowsGet(ctx context.Context, target string) ([]byte, string, error) {
+	return zenrowsGetWaitFor(ctx, target, "")
+}
+
+// zenrowsGetWaitFor is zenrowsGet that, when waitFor is set, has ZenRows hold
+// the page until that CSS selector exists. A selector that never appears makes
+// ZenRows time out, so only pass one the page is known to contain.
+func zenrowsGetWaitFor(ctx context.Context, target, waitFor string) ([]byte, string, error) {
 	apiKey := strings.TrimSpace(os.Getenv("ZENROWS_API_KEY"))
 	if apiKey == "" {
 		return nil, "", errors.New("ZENROWS_API_KEY is not set")
@@ -29,6 +36,9 @@ func zenrowsGet(ctx context.Context, target string) ([]byte, string, error) {
 	q.Set("apikey", apiKey)
 	q.Set("url", target)
 	q.Set("mode", "auto")
+	if waitFor != "" {
+		q.Set("wait_for", waitFor)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, zenrowsEndpoint+"?"+q.Encode(), nil)
 	if err != nil {

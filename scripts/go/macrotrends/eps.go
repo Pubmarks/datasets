@@ -29,26 +29,72 @@ type epsRow struct {
 	peRatio    *float64
 }
 
+const (
+	epsFetchAttempts   = 3
+	epsFetchRetryDelay = 3 * time.Second
+)
+
+// epsPageReadySelector is the chart element that follows the embedded history
+// in the PE-ratio page; once it exists the history script has been parsed.
+const epsPageReadySelector = "#chartContainer"
+
+type pageGetter func(ctx context.Context, target, waitFor string) (body []byte, finalURL string, err error)
+
 func fetchEPSHistory(ctx context.Context, symbol string) ([]epsRow, error) {
+	return fetchEPSHistoryWith(ctx, symbol, zenrowsGetWaitFor, epsFetchRetryDelay)
+}
+
+// fetchEPSHistoryWith retries when a page arrives without the history. ZenRows
+// sometimes snapshots the page before it has loaded (only <head>, a few KB), so
+// retries ask it to wait for epsPageReadySelector.
+func fetchEPSHistoryWith(ctx context.Context, symbol string, get pageGetter, retryDelay time.Duration) ([]epsRow, error) {
 	symbol = normalizeSymbol(symbol)
 	pageURL := epsPageURL(symbol)
-	body, finalURL, err := zenrowsGet(ctx, pageURL)
+	var lastErr error
+	for attempt := 1; attempt <= epsFetchAttempts; attempt++ {
+		waitFor := ""
+		if attempt > 1 {
+			fmt.Fprintf(os.Stderr, "%v; retrying\n", lastErr)
+			waitFor = epsPageReadySelector
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(retryDelay * time.Duration(attempt-1)):
+			}
+		}
+		body, finalURL, err := get(ctx, pageURL, waitFor)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateChartCanonicalURL(finalURL, symbol); err != nil {
+			return nil, err
+		}
+		rows := parseEPSHistoryFromHTML(string(body))
+		if len(rows) == 0 {
+			// MacroTrends' redesigned page embeds the history as JSON in a script
+			// instead of an HTML table.
+			rows = parseEPSHistoryFromChartJSON(string(body))
+		}
+		if len(rows) > 0 {
+			return rows, nil
+		}
+		lastErr = fmt.Errorf("no EPS history found in %d-byte page titled %q on attempt %d of %d (expected table thead %v or window.CHART_CONFIG series)",
+			len(body), htmlTitle(string(body)), attempt, epsFetchAttempts, epsHistoryTableHeaders)
+	}
+	return nil, lastErr
+}
+
+// htmlTitle returns the page <title>, to tell a block or error page from a layout change.
+func htmlTitle(html string) string {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
-		return nil, err
+		return ""
 	}
-	if err := validateChartCanonicalURL(finalURL, symbol); err != nil {
-		return nil, err
+	title := strings.TrimSpace(doc.Find("title").First().Text())
+	if len(title) > 120 {
+		title = title[:120]
 	}
-	rows := parseEPSHistoryFromHTML(string(body))
-	if len(rows) == 0 {
-		// MacroTrends' redesigned page embeds the history as JSON in a script
-		// instead of an HTML table.
-		rows = parseEPSHistoryFromChartJSON(string(body))
-	}
-	if len(rows) == 0 {
-		return nil, fmt.Errorf("no EPS history found (expected table thead %v or window.CHART_CONFIG series)", epsHistoryTableHeaders)
-	}
-	return rows, nil
+	return title
 }
 
 // chartConfig is the subset of window.CHART_CONFIG we need. Series values are
@@ -320,13 +366,17 @@ func readEPSCSVRows(path string) ([]epsRow, error) {
 // oldest row in fetched. fetched must already be sorted oldest-first.
 // Rows MacroTrends no longer serves (older than its current earliest date) are
 // preserved so historical data is never silently lost.
-func mergeEPSWithExisting(fetched []epsRow, existingPath string) ([]epsRow, error) {
+//
+// If the overlap shows MacroTrends restated EPS for a stock split, the preserved
+// rows are moved to the new basis too. The returned factor is 1 when no split
+// was detected.
+func mergeEPSWithExisting(fetched []epsRow, existingPath string) ([]epsRow, float64, error) {
 	if len(fetched) == 0 {
-		return fetched, nil
+		return fetched, 1, nil
 	}
 	existing, err := readEPSCSVRows(existingPath)
 	if err != nil {
-		return nil, err
+		return nil, 1, err
 	}
 	fetchedOldest := fetched[0].date
 	var preserved []epsRow
@@ -336,9 +386,13 @@ func mergeEPSWithExisting(fetched []epsRow, existingPath string) ([]epsRow, erro
 		}
 	}
 	if len(preserved) == 0 {
-		return fetched, nil
+		return fetched, 1, nil
 	}
-	return append(preserved, fetched...), nil
+	factor := detectSplitFactor(existing, fetched)
+	if factor != 1 {
+		scaleRowsForSplit(preserved, factor)
+	}
+	return append(preserved, fetched...), factor, nil
 }
 
 func syncEPSYearFiles(root, ticker string, allRows []epsRow, w io.Writer) error {
