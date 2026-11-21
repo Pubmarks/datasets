@@ -46,3 +46,7 @@ https://pubmarks.github.io/datasets/stocks/NVDA/combined.csv
 https://pubmarks.github.io/datasets/stocks/MSFT/avgpe_5.json
 https://pubmarks.github.io/datasets/stocks/TSM/avgpe_10.json
 ```
+
+## Adding a ticker
+
+To include a new stock ticker, manually trigger the [**Stocks history**](.github/workflows/stocks-history.yaml) workflow in GitHub Actions and pass the ticker symbol (or a comma-separated list, e.g. `MSFT,AAPL`) in the `ticker` input. Once it finishes, `Stocks Data Process`, `Update README table`, and `Datasets GitHub Pages` run automatically to build the derived files, update the table above, and publish to the CDN.

@@ -1,0 +1,83 @@
+name: Stocks EPS rebase weekly
+
+# Runs when the weekly EPS refresh ends. Puts every eps.csv row on the same
+# price basis as ohlcv.csv, including rows older than MacroTrends' history,
+# then starts "Stocks Data Process" so combined/avgpe are built from the result.
+
+on:
+  workflow_run:
+    workflows:
+      - Stocks EPS update weekly
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: "Space-separated tickers (empty = all)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  rebase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          lfs: true
+
+      - name: Sync to latest on branch
+        if: github.event_name == 'workflow_run'
+        run: git fetch origin "${{ github.event.workflow_run.head_branch }}" && git reset --hard "origin/${{ github.event.workflow_run.head_branch }}"
+
+      - name: Download latest macrotrends release
+        run: |
+          gh release download \
+            $(gh release list --repo ${{ github.repository }} \
+              --json tagName \
+              --jq '[.[] | select(.tagName | startswith("macrotrends-"))] | .[0].tagName') \
+            --repo ${{ github.repository }} \
+            --pattern 'macrotrends' \
+            --output /usr/local/bin/macrotrends
+          chmod +x /usr/local/bin/macrotrends
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rebase EPS prices onto OHLCV closes
+        env:
+          TICKERS: ${{ inputs.tickers }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # word-splitting is intended: TICKERS is a space-separated list
+          # shellcheck disable=SC2086
+          status=0
+          macrotrends eps rebase ${TICKERS:-} 2>&1 | tee "$RUNNER_TEMP/rebase.log" || status=$?
+          grep 'warning:' "$RUNNER_TEMP/rebase.log" | sed 's/^/::warning::/' || true
+
+          # commit the tickers that did rebase even if another one failed
+          git add data/stocks
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore: eps rebase weekly"
+            git pull --rebase origin main
+            git push
+          fi
+          exit "$status"
+
+      # workflow_run chains stop after three levels, and README table + Pages
+      # already follow Data Process, so start it as a fresh run instead.
+      - name: Start Stocks Data Process
+        if: ${{ !cancelled() }}
+        run: gh workflow run stocks-data-process.yaml --repo ${{ github.repository }} --ref main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
