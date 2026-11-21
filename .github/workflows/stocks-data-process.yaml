@@ -1,11 +1,12 @@
 name: Stocks Data Process
 
 on:
+  # "Stocks EPS update weekly" is not listed: it is followed by
+  # "Stocks EPS rebase weekly", which starts this workflow when it is done.
   workflow_run:
     workflows:
       - Stocks history
       - Stocks OHLCV update daily
-      - Stocks EPS update weekly
     types:
       - completed
   workflow_dispatch:
