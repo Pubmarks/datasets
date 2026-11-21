@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -39,9 +41,80 @@ func fetchEPSHistory(ctx context.Context, symbol string) ([]epsRow, error) {
 	}
 	rows := parseEPSHistoryFromHTML(string(body))
 	if len(rows) == 0 {
-		return nil, fmt.Errorf("no EPS history table found (expected thead %v)", epsHistoryTableHeaders)
+		// MacroTrends' redesigned page embeds the history as JSON in a script
+		// instead of an HTML table.
+		rows = parseEPSHistoryFromChartJSON(string(body))
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("no EPS history found (expected table thead %v or window.CHART_CONFIG series)", epsHistoryTableHeaders)
 	}
 	return rows, nil
+}
+
+// chartConfig is the subset of window.CHART_CONFIG we need. Series values are
+// keyed v1, v2, ...; options.panels maps each key to a human title.
+type chartConfig struct {
+	SeriesData []map[string]any `json:"seriesData"`
+	Options    struct {
+		Panels []struct {
+			Field string `json:"field"`
+			Title string `json:"title"`
+		} `json:"panels"`
+	} `json:"options"`
+}
+
+// decodeJSSeriesAssignment decodes the JSON value assigned to `window.<name> = ` in html.
+func decodeJSSeriesAssignment(html, name string, v any) bool {
+	marker := "window." + name + " = "
+	i := strings.Index(html, marker)
+	if i < 0 {
+		return false
+	}
+	dec := json.NewDecoder(strings.NewReader(html[i+len(marker):]))
+	return dec.Decode(v) == nil
+}
+
+// parseEPSHistoryFromChartJSON reads the history from window.CHART_CONFIG
+// (seriesData + panel titles). Rows are returned newest-first, matching the
+// order of the former HTML table.
+func parseEPSHistoryFromChartJSON(html string) []epsRow {
+	var cfg chartConfig
+	if !decodeJSSeriesAssignment(html, "CHART_CONFIG", &cfg) {
+		return nil
+	}
+	fields := map[string]string{} // panel title -> series key
+	for _, p := range cfg.Options.Panels {
+		fields[p.Title] = p.Field
+	}
+	priceKey, okP := fields["Stock Price"]
+	epsKey, okE := fields["TTM Net EPS"]
+	peKey, okR := fields["PE Ratio"]
+	if !okP || !okE || !okR {
+		return nil
+	}
+	num := func(m map[string]any, key string) *float64 {
+		f, ok := m[key].(float64)
+		if !ok {
+			return nil // null or missing
+		}
+		// the JSON carries float noise (e.g. 1.5776000000000001); trim it
+		return ptrFloat(math.Round(f*1e4) / 1e4)
+	}
+	rows := make([]epsRow, 0, len(cfg.SeriesData))
+	for _, pt := range cfg.SeriesData {
+		date, _ := pt["date"].(string)
+		if date == "" {
+			continue
+		}
+		rows = append(rows, epsRow{
+			date:       date,
+			stockPrice: num(pt, priceKey),
+			ttmNetEPS:  num(pt, epsKey),
+			peRatio:    num(pt, peKey),
+		})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].date > rows[j].date })
+	return rows
 }
 
 // parseEPSHistoryFromHTML finds the first table.table whose thead matches MacroTrends EPS headers.
