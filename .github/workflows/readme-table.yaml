@@ -1,31 +1,22 @@
 name: Update README table
 
 on:
-  workflow_run:
-    workflows:
-      - Stocks Data Process
-    types:
-      - completed
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   update-readme:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref }}
           fetch-depth: 0
-
-      - name: Sync to latest on branch
-        if: github.event_name == 'workflow_run'
-        run: git fetch origin "${{ github.event.workflow_run.head_branch }}" && git reset --hard "origin/${{ github.event.workflow_run.head_branch }}"
+          lfs: true
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -44,3 +35,9 @@ jobs:
             git pull --rebase origin "$branch" &&
             git push
           )
+
+      - name: Start Datasets GitHub Pages
+        if: success()
+        run: gh workflow run datasets-github-pages.yaml --repo ${{ github.repository }} --ref main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
