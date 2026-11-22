@@ -50,4 +50,51 @@ https://pubmarks.github.io/datasets/stocks/TSM/avgpe_10.json
 
 ## Adding a ticker
 
-To include a new stock ticker, manually trigger the [**Stocks history**](.github/workflows/stocks-history.yaml) workflow in GitHub Actions and pass the ticker symbol (or a comma-separated list, e.g. `MSFT,AAPL`) in the `ticker` input. Once it finishes, `Stocks Data Process`, `Update README table`, and `Datasets GitHub Pages` run automatically to build the derived files, update the table above, and publish to the CDN.
+To include a new stock ticker, manually trigger the [**Stocks history**](https://github.com/Pubmarks/datasets/actions/workflows/stocks-history.yaml) workflow in GitHub Actions and pass the ticker symbol (or a comma-separated list, e.g. `MSFT,AAPL`) in the `ticker` input. Once it finishes, `Stocks Data Process`, `Update README table`, and `Datasets GitHub Pages` run automatically to build the derived files, update the table above, and publish to the CDN.
+
+## GitHub Actions
+
+Stock data workflows chain via `workflow_dispatch` calls (`gh workflow run`). Also they can be started manually. `workflow_dispatch` is used instead of `workflow_run` as GitHub caps `workflow_run` chains at 3, and does not fire downstream `workflow_run` triggers when the parent run was started with the default `GITHUB_TOKEN`.
+
+```mermaid
+flowchart TD
+  subgraph entry["Entry"]
+    ohlcv["Stocks OHLCV update daily<br/><small>schedule: daily · manual</small>"]
+    eps["Stocks EPS update weekly<br/><small>schedule: Sat · manual</small>"]
+    history["Stocks history<br/><small>manual</small>"]
+  end
+
+  rebase["Stocks EPS rebase weekly"]
+  process["Stocks Data Process"]
+  readme["Update README table"]
+  pages["Datasets GitHub Pages"]
+
+  eps -->|"dispatch"| rebase
+  rebase -->|"dispatch"| process
+  ohlcv -->|"dispatch"| process
+  history -->|"dispatch"| process
+  process -->|"dispatch"| readme
+  readme -->|"dispatch"| pages
+```
+
+Tool binaries are built and published as GitHub releases on push to their source paths. Workflows download the latest release at run time.
+
+```mermaid
+flowchart LR
+  subgraph builds["Release on push (or manual)"]
+    mt["pubmarks/macrotrends<br/>build and release"]
+    comb["pubmarks/combined<br/>build and release"]
+    avg["pubmarks/avgpe<br/>build and release"]
+  end
+
+  history2["Stocks history"]
+  eps2["Stocks EPS update weekly"]
+  rebase2["Stocks EPS rebase weekly"]
+  process2["Stocks Data Process"]
+
+  mt -.->|"latest release"| history2
+  mt -.->|"latest release"| eps2
+  mt -.->|"latest release"| rebase2
+  comb -.->|"latest release"| process2
+  avg -.->|"latest release"| process2
+```
