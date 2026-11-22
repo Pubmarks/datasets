@@ -1,10 +1,6 @@
 name: Datasets GitHub Pages
 
 on:
-  workflow_run:
-    workflows:
-      - Update README table
-    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -19,7 +15,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Checkout
         uses: actions/checkout@v4

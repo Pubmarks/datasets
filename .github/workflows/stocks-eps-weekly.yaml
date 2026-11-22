@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   update:
@@ -98,3 +99,9 @@ jobs:
             git add "${ROOT}/${ticker}"
             commit_if_staged "chore: ${ticker,,} eps weekly update"
           done
+
+      - name: Start Stocks EPS rebase weekly
+        if: success()
+        run: gh workflow run stocks-eps-rebase-weekly.yaml --repo ${{ github.repository }} --ref main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

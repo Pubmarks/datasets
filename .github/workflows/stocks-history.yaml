@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   backfill:
@@ -73,3 +74,9 @@ jobs:
             git add data/stocks
             commit_if_staged "chore: ${T,,} history"
           done
+
+      - name: Start Stocks Data Process
+        if: success()
+        run: gh workflow run stocks-data-process.yaml --repo ${{ github.repository }} --ref main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

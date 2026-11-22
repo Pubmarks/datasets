@@ -5,11 +5,6 @@ name: Stocks EPS rebase weekly
 # then starts "Stocks Data Process" so combined/avgpe are built from the result.
 
 on:
-  workflow_run:
-    workflows:
-      - Stocks EPS update weekly
-    types:
-      - completed
   workflow_dispatch:
     inputs:
       tickers:
@@ -31,10 +26,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
           lfs: true
-
-      - name: Sync to latest on branch
-        if: github.event_name == 'workflow_run'
-        run: git fetch origin "${{ github.event.workflow_run.head_branch }}" && git reset --hard "origin/${{ github.event.workflow_run.head_branch }}"
 
       - name: Download latest macrotrends release
         run: |
@@ -74,8 +65,6 @@ jobs:
           fi
           exit "$status"
 
-      # workflow_run chains stop after three levels, and README table + Pages
-      # already follow Data Process, so start it as a fresh run instead.
       - name: Start Stocks Data Process
         if: ${{ !cancelled() }}
         run: gh workflow run stocks-data-process.yaml --repo ${{ github.repository }} --ref main

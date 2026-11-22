@@ -1,23 +1,15 @@
 name: Stocks Data Process
 
 on:
-  # "Stocks EPS update weekly" is not listed: it is followed by
-  # "Stocks EPS rebase weekly", which starts this workflow when it is done.
-  workflow_run:
-    workflows:
-      - Stocks history
-      - Stocks OHLCV update daily
-    types:
-      - completed
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   update:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,10 +17,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
           lfs: true
-
-      - name: Sync to latest on branch
-        if: github.event_name == 'workflow_run'
-        run: git fetch origin "${{ github.event.workflow_run.head_branch }}" && git reset --hard "origin/${{ github.event.workflow_run.head_branch }}"
 
       - name: Download latest combined release
         run: |
@@ -85,3 +73,9 @@ jobs:
             git pull --rebase origin main
             git push
           fi
+
+      - name: Start Update README table
+        if: success()
+        run: gh workflow run readme-table.yaml --repo ${{ github.repository }} --ref main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
